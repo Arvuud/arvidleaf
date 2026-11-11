@@ -34,9 +34,9 @@ pub fn key_action(name: &str) -> Option<Action> {
     let mut rest = name;
     while let Some((head, tail)) = rest.split_once('+').filter(|(_, t)| !t.is_empty()) {
         match head.to_ascii_lowercase().as_str() {
-            "ctrl" | "cmd" => m = m | egui::Modifiers::COMMAND,
-            "alt" => m = m | egui::Modifiers::ALT,
-            "shift" => m = m | egui::Modifiers::SHIFT,
+            "ctrl" | "cmd" => m |= egui::Modifiers::COMMAND,
+            "alt" => m |= egui::Modifiers::ALT,
+            "shift" => m |= egui::Modifiers::SHIFT,
             _ => return None,
         }
         rest = tail;
@@ -156,7 +156,7 @@ pub fn render(opts: Options) -> Vec<u8> {
         let Primitive::Mesh(mesh) = cp.primitive else { continue };
         let Some(tex) = textures.get(&mesh.texture_id) else { continue };
         let clip = cp.clip_rect.intersect(screen);
-        for tri in mesh.indices.chunks_exact(3) {
+        for tri in mesh.indices.as_chunks::<3>().0 {
             let v = [mesh.vertices[tri[0] as usize], mesh.vertices[tri[1] as usize], mesh.vertices[tri[2] as usize]];
             raster(&mut fb, w, h, clip, &v, tex);
         }

@@ -20,7 +20,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", root.display());
     let mut dirs: Vec<_> = std::fs::read_dir(&root).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.join("template.toml").is_file()).collect();
     dirs.sort();
-    let mut code = String::from("pub static BUILTIN: &[(&str, &[(&str, &[u8])])] = &[\n");
+    let mut code = String::from("/// (template name, [(relative path, contents)])\n#[allow(clippy::type_complexity)]\npub static BUILTIN: &[(&str, &[(&str, &[u8])])] = &[\n");
     for d in dirs {
         let id = d.file_name().unwrap().to_string_lossy().to_string();
         let mut fs = Vec::new();

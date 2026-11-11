@@ -17,6 +17,8 @@ pub struct Config {
     pub hidden_templates: Vec<String>,
     /// Show the files & outline side panel.
     pub show_outline: bool,
+    /// Vim key bindings in the editor.
+    pub vim: bool,
 }
 
 impl Default for Config {
@@ -29,6 +31,7 @@ impl Default for Config {
             projects_dir: None,
             hidden_templates: Vec::new(),
             show_outline: true,
+            vim: false,
         }
     }
 }

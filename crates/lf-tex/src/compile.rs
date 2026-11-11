@@ -209,11 +209,10 @@ pub fn run(job: &Job, cancel: &Cancel) -> Outcome {
     // project files as relative paths, like the editor shows them
     let root = job.root.canonicalize().unwrap_or_else(|_| job.root.clone());
     for e in &mut out.entries {
-        if let Some(f) = &e.file {
-            if let Ok(rel) = Path::new(f).strip_prefix(&root).or_else(|_| Path::new(f).strip_prefix(&job.root)) {
+        if let Some(f) = &e.file
+            && let Ok(rel) = Path::new(f).strip_prefix(&root).or_else(|_| Path::new(f).strip_prefix(&job.root)) {
                 e.file = Some(rel.to_string_lossy().to_string());
             }
-        }
     }
     out.pages = log::page_count(&out.log);
     let pdf = job.pdf_path();
@@ -221,56 +220,105 @@ pub fn run(job: &Job, cancel: &Cancel) -> Outcome {
         out.pdf = Some(pdf);
     }
     locate_missing(&job.root, &mut out.entries);
+    for e in out.entries.iter_mut().filter(|e| e.file.is_none() && e.message.starts_with("Missing \\end{document}")) {
+        let lines = std::fs::read_to_string(job.root.join(&job.main)).map(|s| s.lines().count()).unwrap_or(1);
+        e.file = Some(job.main.to_string_lossy().to_string());
+        e.line = Some(lines.max(1) as u32);
+    }
     out.missing = log::missing_files(&out.entries).into_iter().map(|f| MissingPackage { provider: provider_of(&f), file: f }).collect();
     out.ok = !out.cancelled && out.pdf.is_some() && out.errors() == 0;
     out
 }
 
-/// TeX reports a missing package without a line, or inside a system file
-/// (babel.sty). Point to the `\usepackage`/`\input`/`\documentclass` in
-/// the project's sources that asked for it.
-fn locate_missing(root: &Path, entries: &mut [LogEntry]) {
-    let outside = |e: &LogEntry| e.line.is_none() || e.file.as_ref().is_some_and(|f| Path::new(f).is_absolute());
-    for e in entries.iter_mut().filter(|e| e.level == Level::Error && outside(e)) {
-        let Some(missing) = log::missing_files(std::slice::from_ref(e)).into_iter().next() else { continue };
-        let stem = missing.rsplit_once('.').map_or(missing.as_str(), |(s, _)| s).to_string();
-        let mut stack = vec![root.to_path_buf()];
-        let mut found = None;
-        while let Some(dir) = stack.pop() {
-            let Ok(rd) = std::fs::read_dir(&dir) else { continue };
-            for ent in rd.filter_map(|x| x.ok()) {
-                let p = ent.path();
-                let name = ent.file_name().to_string_lossy().to_string();
-                if name.starts_with('.') {
-                    continue;
-                }
-                if p.is_dir() {
-                    stack.push(p);
-                } else if name.ends_with(".tex") || name.ends_with(".sty") || name.ends_with(".cls") {
-                    let Ok(src) = std::fs::read_to_string(&p) else { continue };
-                    for (n, line) in src.lines().enumerate() {
-                        let code = crate::outline::strip_comment(line);
-                        let wants = ["usepackage", "RequirePackage", "documentclass", "input", "include", "babel"]
-                            .iter()
-                            .any(|c| code.contains(&format!("\\{c}"))) || code.contains("\\selectlanguage");
-                        let names_it = code.split(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_' || c == '/' || c == '.')).any(|w| w == stem || w == missing);
-                        if wants && names_it {
-                            found = Some((p.strip_prefix(root).unwrap_or(&p).to_string_lossy().to_string(), n as u32 + 1));
-                            break;
-                        }
-                    }
-                }
-                if found.is_some() {
-                    break;
-                }
+/// Project source files (`.tex`, `.sty`, `.cls`), hidden folders skipped.
+fn project_sources(root: &Path) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let mut ents: Vec<_> = rd.filter_map(|x| x.ok()).collect();
+        ents.sort_by_key(|e| e.file_name());
+        for ent in ents {
+            let p = ent.path();
+            let name = ent.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
             }
-            if found.is_some() {
-                break;
+            if p.is_dir() {
+                stack.push(p);
+            } else if (name.ends_with(".tex") || name.ends_with(".sty") || name.ends_with(".cls"))
+                && let Ok(src) = std::fs::read_to_string(&p) {
+                    out.push((p.strip_prefix(root).unwrap_or(&p).to_string_lossy().to_string(), src));
+                }
+        }
+    }
+    out
+}
+
+/// Line that loads `name` (`\usepackage{name}`, `\input{name}`, …).
+fn find_load(sources: &[(String, String)], name: &str) -> Option<(String, u32)> {
+    let stem = name.rsplit_once('.').map_or(name, |(s, _)| s);
+    for (f, src) in sources {
+        for (n, line) in src.lines().enumerate() {
+            let code = crate::outline::strip_comment(line);
+            let wants = ["usepackage", "RequirePackage", "documentclass", "input", "include", "babel"].iter().any(|c| code.contains(&format!("\\{c}")))
+                || code.contains("\\selectlanguage");
+            let names_it = code.split(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_' || c == '/' || c == '.')).any(|w| w == stem || w == name);
+            if wants && names_it {
+                return Some((f.clone(), n as u32 + 1));
             }
         }
+    }
+    None
+}
+
+/// Line where a runaway argument starts: its first words, as TeX printed them.
+fn find_runaway(sources: &[(String, String)], text: &str) -> Option<(String, u32)> {
+    let t = text.trim_start_matches(['{', '[', ' ']);
+    let end = t.find(['\\', '{', '}']).unwrap_or(t.len());
+    let snippet = t[..end].trim();
+    if snippet.len() < 3 {
+        return None;
+    }
+    let mut hits = sources.iter().flat_map(|(f, src)| {
+        src.lines().enumerate().filter(move |(_, l)| crate::outline::strip_comment(l).contains(snippet)).map(move |(n, _)| (f.clone(), n as u32 + 1))
+    });
+    let first = hits.next()?;
+    // ambiguous text: better no line than a wrong one
+    hits.next().is_none().then_some(first)
+}
+
+/// TeX reports some errors without a line, or inside a system file
+/// (babel.sty, fontspec.sty). Point to the line in the project's sources:
+/// the `\usepackage` that loaded the file, or the start of a runaway argument.
+fn locate_missing(root: &Path, entries: &mut [LogEntry]) {
+    let outside = |e: &LogEntry| e.line.is_none() || e.file.as_ref().is_some_and(|f| Path::new(f).is_absolute());
+    if !entries.iter().any(|e| e.level == Level::Error && outside(e)) {
+        return;
+    }
+    let sources = project_sources(root);
+    for e in entries.iter_mut().filter(|e| e.level == Level::Error && outside(e)) {
+        let found = if let Some(missing) = log::missing_files(std::slice::from_ref(e)).into_iter().next() {
+            find_load(&sources, &missing)
+        } else if let Some(r) = e.context.lines().find_map(|l| l.strip_prefix("Runaway argument: ")) {
+            find_runaway(&sources, r)
+        } else if let Some(sys) = e.file.clone().filter(|f| Path::new(f).is_absolute()) {
+            let name = Path::new(&sys).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let hit = find_load(&sources, &name);
+            if hit.is_some() {
+                let at = e.line.map(|l| format!("{name}:{l}")).unwrap_or(name);
+                e.context = format!("(reported in {at})\n{}", e.context).trim_end().to_string();
+            }
+            hit
+        } else {
+            None
+        };
         if let Some((f, l)) = found {
             e.file = Some(f);
             e.line = Some(l);
+        }
+        if e.message.contains("requires either XeTeX or LuaTeX") || e.message.contains("requires XeTeX or LuaTeX") {
+            e.message.push_str(" Hint: switch the engine to XeLaTeX or LuaLaTeX (Build › Engine).");
         }
     }
 }
@@ -278,9 +326,7 @@ fn locate_missing(root: &Path, entries: &mut [LogEntry]) {
 /// Asks the package manager which package ships a TeX file (Arch: `pacman -F`,
 /// which needs a synced file database; babel languages are also known without it).
 pub fn provider_of(file: &str) -> Option<String> {
-    if crate::tools::find("pacman").is_none() {
-        return None;
-    }
+    crate::tools::find("pacman")?;
     if let Ok(o) = Command::new("pacman").arg("-Fq").arg(file).stderr(Stdio::null()).output() {
         let s = String::from_utf8_lossy(&o.stdout);
         if let Some(pick) = s.lines().find(|l| l.contains("texlive")).or_else(|| s.lines().next()) {

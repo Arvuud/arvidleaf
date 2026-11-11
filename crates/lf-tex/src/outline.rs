@@ -125,13 +125,11 @@ pub fn headings(src: &str) -> Vec<(u8, String, u32)> {
         }
         // beamer: \begin{frame}{Title}
         for at in find_cmds(line, "begin") {
-            if let Some((env, after)) = brace_arg(line, at) {
-                if env == "frame" {
-                    if let Some((title, _)) = brace_arg(line, after) {
+            if let Some((env, after)) = brace_arg(line, at)
+                && env == "frame"
+                    && let Some((title, _)) = brace_arg(line, after) {
                         out.push((3, title, n as u32 + 1));
                     }
-                }
-            }
         }
     }
     out.sort_by_key(|h| h.2);

@@ -149,46 +149,76 @@ fn error_context(lines: &[&str], start: usize) -> (String, Option<u32>, usize) {
     (ctx.join("\n"), line_no, k)
 }
 
+/// Continuation lines of a multi-line message: `(pkgname)  more text` or
+/// deeply indented text. Returns the joined message and the next line index.
+fn continued_message(lines: &[&str], first: &str, start: usize) -> (String, usize) {
+    let mut msg = first.to_string();
+    let mut k = start;
+    while k < lines.len() {
+        let l = lines[k];
+        let t = l.trim_start();
+        if t.is_empty() {
+            break;
+        }
+        let cont = (t.starts_with('(') && t.find(')').is_some_and(|p| !t[1..p].contains(' ') && !looks_like_file(&t[1..p]))) || l.starts_with("               ");
+        if !cont {
+            break;
+        }
+        let body = if t.starts_with('(') { t[t.find(')').unwrap() + 1..].trim() } else { t };
+        msg.push(' ');
+        msg.push_str(body);
+        k += 1;
+    }
+    (msg.split_whitespace().collect::<Vec<_>>().join(" "), k)
+}
+
+/// Follow-up messages TeX prints after the real error.
+fn is_followup(msg: &str) -> bool {
+    msg.starts_with("Emergency stop") || msg.starts_with("==> Fatal error occurred")
+}
+
 /// Parses a TeX log into entries (errors first in log order, then the rest).
 pub fn parse(log: &str) -> Vec<LogEntry> {
     let lines: Vec<&str> = log.lines().collect();
     let mut files = FileStack::default();
     let mut out: Vec<LogEntry> = Vec::new();
+    // "Runaway argument?" + the text TeX was reading, shown with the next error
+    let mut runaway: Option<String> = None;
     let mut i = 0;
     while i < lines.len() {
         let line = lines[i];
-        if let Some((file, ln, msg)) = split_file_line(line) {
-            let (ctx, _, next) = error_context(&lines, i + 1);
-            out.push(LogEntry { level: Level::Error, file: Some(file), line: Some(ln), message: msg.trim().to_string(), context: ctx });
-            i = next;
+        if line.starts_with("Runaway ") && line.ends_with('?') {
+            runaway = lines.get(i + 1).map(|l| l.trim().to_string());
+            i += 2;
             continue;
         }
-        if let Some(msg) = line.strip_prefix("! ") {
-            let (ctx, ln, next) = error_context(&lines, i + 1);
-            out.push(LogEntry { level: Level::Error, file: files.current(), line: ln, message: msg.trim().to_string(), context: ctx });
+        let err = split_file_line(line).map(|(f, l, m)| (Some(f), Some(l), m)).or_else(|| line.strip_prefix("! ").map(|m| (None, None, m.to_string())));
+        if let Some((file, ln, msg)) = err {
+            let (msg, after) = continued_message(&lines, msg.trim(), i + 1);
+            let (mut ctx, ctx_line, next) = error_context(&lines, after);
+            let file = file.or_else(|| files.current());
+            let ln = ln.or(ctx_line);
+            let mut message = msg;
+            if lines[after..(after + 6).min(lines.len())].iter().any(|l| l.contains("no legal \\end found")) {
+                if out.iter().any(|e| e.level == Level::Error) {
+                    // consequence of an earlier error (e.g. a runaway argument)
+                    i = next;
+                    continue;
+                }
+                message = "Missing \\end{document}: the file ended before the document was closed.".to_string();
+            }
+            if let Some(r) = runaway.take() {
+                if message.contains("while scanning use of") || message.contains("ended before") {
+                    message.push_str(" Probably a missing `}`.");
+                }
+                ctx = format!("Runaway argument: {r}\n{ctx}").trim_end().to_string();
+            }
+            out.push(LogEntry { level: Level::Error, file, line: ln, message, context: ctx });
             i = next;
             continue;
         }
         if is_warning_start(line) {
-            // continuation lines start with "(pkgname)" or spaces
-            let mut msg = line.to_string();
-            let mut k = i + 1;
-            while k < lines.len() {
-                let l = lines[k];
-                let t = l.trim_start();
-                if t.is_empty() {
-                    break;
-                }
-                let cont = (t.starts_with('(') && t.find(')').is_some_and(|p| !t[1..p].contains(' ') && !looks_like_file(&t[1..p]))) || l.starts_with("               ");
-                if !cont {
-                    break;
-                }
-                let body = if t.starts_with('(') { t[t.find(')').unwrap() + 1..].trim() } else { t };
-                msg.push(' ');
-                msg.push_str(body);
-                k += 1;
-            }
-            let msg = msg.split_whitespace().collect::<Vec<_>>().join(" ");
+            let (msg, k) = continued_message(&lines, line, i + 1);
             let ln = input_line(&msg);
             out.push(LogEntry { level: Level::Warning, file: files.current(), line: ln, message: msg, context: String::new() });
             i = k;
@@ -202,7 +232,11 @@ pub fn parse(log: &str) -> Vec<LogEntry> {
         files.scan(line);
         i += 1;
     }
-    // TeX repeats some errors (e.g. "Emergency stop" after a fatal error): keep the first
+    // "Emergency stop" / "Fatal error occurred" only repeat the real error
+    if out.iter().any(|e| e.level == Level::Error && !is_followup(&e.message)) {
+        out.retain(|e| e.level != Level::Error || !is_followup(&e.message));
+    }
+    // TeX repeats some errors: keep the first
     let mut seen = std::collections::HashSet::new();
     out.retain(|e| seen.insert((e.level, e.file.clone(), e.line, e.message.clone())));
     out.sort_by_key(|e| e.level);
@@ -226,14 +260,13 @@ pub fn missing_files(entries: &[LogEntry]) -> Vec<String> {
         }
         if let Some(p) = e.message.find("File `") {
             let rest = &e.message[p + 6..];
-            if let Some(q) = rest.find('\'') {
-                if rest[q..].contains("not found") {
+            if let Some(q) = rest.find('\'')
+                && rest[q..].contains("not found") {
                     let f = rest[..q].to_string();
                     if !v.contains(&f) {
                         v.push(f);
                     }
                 }
-            }
         }
     }
     v
@@ -309,5 +342,28 @@ Output written on main.pdf (3 pages, 12345 bytes).
         assert_eq!(e[0].file.as_deref(), Some("doc.tex"));
         assert_eq!(e[0].line, Some(5));
         assert_eq!(e[0].message, "Missing $ inserted.");
+    }
+
+    #[test]
+    fn multi_line_errors_and_followups() {
+        let log = "(./main.tex\n./main.tex:4: LaTeX Error: Unicode character \u{2211} (U+2211)\n               not set up for use with LaTeX.\n\nSee the LaTeX manual.\n\n! Emergency stop.\n<*> main.tex\n\n!  ==> Fatal error occurred, no output PDF file produced!\n)";
+        let e = parse(log);
+        assert_eq!(e.len(), 1, "{e:#?}");
+        assert_eq!(e[0].message, "LaTeX Error: Unicode character \u{2211} (U+2211) not set up for use with LaTeX.");
+        let pkg = parse("/usr/share/texmf-dist/tex/latex/fontspec/fontspec.sty:101: Fatal Package fontspec Error: The fontspec package requires either XeTeX or\n(fontspec)                      LuaTeX.\n(fontspec)                      \n(fontspec)                      You must change your typesetting engine.\n\n");
+        assert!(pkg[0].message.ends_with("requires either XeTeX or LuaTeX. You must change your typesetting engine."), "{}", pkg[0].message);
+    }
+
+    #[test]
+    fn missing_end_document_and_runaway() {
+        let fatal = "(./main.tex\n! Emergency stop.\n<*> main.tex\n            \n*** (job aborted, no legal \\end found)\n\n!  ==> Fatal error occurred, no output PDF file produced!\n";
+        let e = parse(fatal);
+        assert_eq!(e.len(), 1, "{e:#?}");
+        assert!(e[0].message.starts_with("Missing \\end{document}"), "{}", e[0].message);
+        let runaway = "(./main.tex\nRunaway argument?\n{unclosed \\par \\section {x} \\end {document} \n! File ended while scanning use of \\textbf .\n<inserted text> \n                \\par \n<*> main.tex\n            \nI suspect you have forgotten a `}'.\n\n! Emergency stop.\n<*> main.tex\n            \n*** (job aborted, no legal \\end found)\n\n!  ==> Fatal error occurred, no output PDF file produced!\n";
+        let e = parse(runaway);
+        assert_eq!(e.len(), 1, "{e:#?}");
+        assert!(e[0].message.contains("missing `}`"), "{}", e[0].message);
+        assert!(e[0].context.starts_with("Runaway argument: {unclosed"), "{}", e[0].context);
     }
 }

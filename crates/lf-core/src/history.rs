@@ -89,12 +89,11 @@ impl History {
             }
             let mtime = md.modified().unwrap_or(UNIX_EPOCH);
             let key = rel.to_string_lossy().replace('\\', "/");
-            if let Some((t, s, h)) = cache.get(&rel) {
-                if *t == mtime && *s == md.len() && (!store || self.object_path(h).exists()) {
+            if let Some((t, s, h)) = cache.get(&rel)
+                && *t == mtime && *s == md.len() && (!store || self.object_path(h).exists()) {
                     files.insert(key, h.clone());
                     continue;
                 }
-            }
             let Ok(data) = std::fs::read(&abs) else { continue };
             let h = hash_bytes(&data);
             if store {

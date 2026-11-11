@@ -55,8 +55,8 @@ pub fn context(before: &str) -> Option<Context> {
     let tail = &before[cut..];
     let line = tail.rsplit('\n').next().unwrap_or(tail);
     // inside an argument?
-    if let Some(open) = line.rfind('{') {
-        if !line[open..].contains('}') {
+    if let Some(open) = line.rfind('{')
+        && !line[open..].contains('}') {
             let arg = &line[open + 1..];
             let cmd_start = line[..open].rfind('\\')?;
             let cmd: String = line[cmd_start + 1..].chars().take_while(|c| c.is_ascii_alphabetic()).collect();
@@ -70,7 +70,6 @@ pub fn context(before: &str) -> Option<Context> {
                 _ => None,
             };
         }
-    }
     let bs = line.rfind('\\')?;
     let word = &line[bs + 1..];
     if word.chars().all(|c| c.is_ascii_alphabetic()) && !word.is_empty() {

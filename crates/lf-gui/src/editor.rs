@@ -12,6 +12,7 @@ use lf_tex::lexer::{self, Tok};
 use lf_tex::log::Level;
 
 use crate::theme::Palette;
+use crate::vim::{self, VKey, Vim};
 
 pub struct EditorDoc {
     /// Path relative to the project root.
@@ -33,6 +34,10 @@ pub struct EditorDoc {
     /// Char index of a closing bracket inserted by auto-closing (typing it
     /// right there steps over it instead of adding another one).
     auto_closed: Option<usize>,
+    /// Vim emulation (when switched on in the Edit menu).
+    vim: Option<Vim>,
+    /// Cursor position last set by Vim; anything else came from the mouse or typing.
+    vim_expected: Option<usize>,
 }
 
 struct Completion {
@@ -59,10 +64,13 @@ pub struct EditorEnv<'a> {
     pub bib_keys: &'a [String],
     pub files: &'a [String],
     pub font_size: f32,
+    pub vim: bool,
 }
 
 pub enum EditorAction {
     SyncToPdf(u32, u32),
+    /// `:w` in Vim mode
+    Save,
 }
 
 impl EditorDoc {
@@ -84,6 +92,8 @@ impl EditorDoc {
             completion: None,
             find: None,
             auto_closed: None,
+            vim: None,
+            vim_expected: None,
         }
     }
 
@@ -102,6 +112,12 @@ impl EditorDoc {
         self.last_edit = None;
         self.conflict = false;
         Ok(())
+    }
+
+    /// Another program wrote the file since we loaded or saved it.
+    pub fn changed_on_disk(&self) -> bool {
+        let m = std::fs::metadata(&self.abs).and_then(|m| m.modified()).ok();
+        m.is_some() && m != self.disk_mtime
     }
 
     /// Reloads from disk (discarding unsaved edits).
@@ -133,7 +149,15 @@ impl EditorDoc {
         let has_focus = ui.memory(|m| m.has_focus(id));
 
         // ---- toolbar
+        if env.vim != self.vim.is_some() {
+            self.vim = env.vim.then(Vim::default);
+            self.vim_expected = None;
+        }
         ui.horizontal(|ui| {
+            if let Some(v) = &self.vim {
+                let c = if v.mode == vim::Mode::Insert { pal.accent2 } else { pal.accent };
+                ui.label(RichText::new(v.status()).monospace().small().color(c));
+            }
             ui.label(RichText::new(self.rel.display().to_string()).small().color(pal.dim));
             if self.conflict {
                 ui.label(RichText::new("⚠ changed on disk").small().color(pal.warn));
@@ -164,6 +188,15 @@ impl EditorDoc {
                 i.key_pressed(Key::Escape),
             )
         });
+        // Vim sees the keys first; in normal/visual mode it uses all of them
+        let mut vim_moved = false;
+        if has_focus && self.vim.is_some() {
+            let (a, moved) = self.vim_input(&ctx);
+            action = a.or(action);
+            vim_moved = moved;
+        }
+        let block_cursor = self.vim.as_ref().filter(|v| has_focus && v.mode != vim::Mode::Insert).map(|v| v.cursor);
+
         if has_focus && ctrl_f {
             let sel = self.selected_text(&ctx);
             let f = self.find.get_or_insert_with(Find::default);
@@ -218,11 +251,10 @@ impl EditorDoc {
                     let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap: f32| -> Arc<Galley> {
                         let s = buf.as_str();
                         let h = hash(s) ^ hash(&err_lines) ^ (pal.text.to_array()[0] as u64) << 7 ^ (font.size.to_bits() as u64) << 20;
-                        if let Some((hh, w, g)) = cache {
-                            if *hh == h && *w == wrap {
+                        if let Some((hh, w, g)) = cache
+                            && *hh == h && *w == wrap {
                                 return g.clone();
                             }
-                        }
                         let mut job = highlight(s, &font, pal, &err_lines);
                         job.wrap.max_width = wrap;
                         let g = ui.fonts_mut(|f| f.layout_job(job));
@@ -268,11 +300,27 @@ impl EditorDoc {
                         let hover = egui::Rect::from_center_size(dot, egui::vec2(12.0, row_h));
                         ui.interact(hover, egui::Id::new(("gutter-tip", self.id, *line)), egui::Sense::hover()).on_hover_text(msg);
                     }
+                    if let Some(c) = block_cursor {
+                        let r = out.galley.pos_from_cursor(CCursor::new(c)).translate(out.galley_pos.to_vec2());
+                        let block = egui::Rect::from_min_size(r.min, egui::vec2(char_w, r.height().max(row_h)));
+                        painter.rect_filled(block, 1.0, pal.accent.gamma_multiply(0.45));
+                    }
+                    if vim_moved {
+                        let c = self.vim.as_ref().map_or(0, |v| v.cursor);
+                        let r = out.galley.pos_from_cursor(CCursor::new(c)).translate(out.galley_pos.to_vec2());
+                        ui.scroll_to_rect(r.expand(row_h), None);
+                    }
                     output = Some(out);
                 });
             });
         });
         let out = output.unwrap();
+        if self.vim.is_some() {
+            // egui drops the focus on Escape unless the widget claims the key;
+            // in Vim mode Escape switches to normal mode instead
+            let filter = egui::EventFilter { tab: true, horizontal_arrows: true, vertical_arrows: true, escape: true };
+            ui.memory_mut(|m| m.set_focus_lock_filter(id, filter));
+        }
         if out.response.changed() {
             self.last_edit = Some(Instant::now());
         }
@@ -313,6 +361,118 @@ impl EditorDoc {
         action
     }
 
+    /// Feeds this frame's keys to Vim and removes the ones it used.
+    /// Returns an action (`:w`) and whether Vim handled any key.
+    fn vim_input(&mut self, ctx: &egui::Context) -> (Option<EditorAction>, bool) {
+        let widget_cursor = self.cursor(ctx).map(|r| usize::from(r.primary.index));
+        let Some(v) = self.vim.as_mut() else { return (None, false) };
+        if let Some(c) = widget_cursor
+            && Some(c) != self.vim_expected {
+                v.sync_cursor(&self.text, c);
+            }
+        let events = ctx.input(|i| i.events.clone());
+        let leaves_insert = events.iter().any(|e| {
+            matches!(e, egui::Event::Key { key: Key::Escape, pressed: true, .. }) || matches!(e, egui::Event::Key { key: Key::OpenBracket, pressed: true, modifiers, .. } if modifiers.ctrl)
+        });
+        // keys typed in insert mode go to the text widget (auto-closing, completion),
+        // unless the mode changes within this frame
+        v.self_insert = v.mode != vim::Mode::Insert || leaves_insert;
+        let mut consumed = vec![false; events.len()];
+        let mut action = None;
+        let mut changed = false;
+        let mut used = false;
+        for (k, ev) in events.iter().enumerate() {
+            let keys: Vec<VKey> = match ev {
+                egui::Event::Text(t) => t.chars().map(VKey::Char).collect(),
+                egui::Event::Key { key, pressed: true, modifiers, .. } => {
+                    if modifiers.ctrl || modifiers.command {
+                        let c = match key {
+                            Key::R => 'r',
+                            Key::D => 'd',
+                            Key::U => 'u',
+                            Key::N => 'n',
+                            Key::P => 'p',
+                            Key::OpenBracket => '[',
+                            _ => continue,
+                        };
+                        if v.mode == vim::Mode::Insert && c != '[' {
+                            continue;
+                        }
+                        vec![VKey::Ctrl(c)]
+                    } else {
+                        match key {
+                            Key::Escape => vec![VKey::Esc],
+                            Key::Enter => vec![VKey::Enter],
+                            Key::Backspace => vec![VKey::Backspace],
+                            Key::Delete => vec![VKey::Delete],
+                            Key::Tab => vec![VKey::Tab],
+                            Key::ArrowLeft => vec![VKey::Left],
+                            Key::ArrowRight => vec![VKey::Right],
+                            Key::ArrowUp => vec![VKey::Up],
+                            Key::ArrowDown => vec![VKey::Down],
+                            Key::Home => vec![VKey::Home],
+                            Key::End => vec![VKey::End],
+                            Key::PageUp => vec![VKey::PageUp],
+                            Key::PageDown => vec![VKey::PageDown],
+                            // letters arrive as Text events; keep the widget from acting on the key
+                            _ => {
+                                consumed[k] = v.mode != vim::Mode::Insert || v.self_insert;
+                                continue;
+                            }
+                        }
+                    }
+                }
+                // pasting in normal mode would bypass Vim
+                egui::Event::Paste(_) | egui::Event::Cut if v.mode == vim::Mode::Normal => {
+                    consumed[k] = true;
+                    continue;
+                }
+                _ => continue,
+            };
+            for key in keys {
+                let r = v.handle(&mut self.text, key);
+                consumed[k] |= r.consumed;
+                used |= r.consumed;
+                changed |= r.changed;
+                if r.save {
+                    action = Some(EditorAction::Save);
+                }
+                if let Some(t) = r.copy {
+                    ctx.copy_text(t);
+                }
+            }
+        }
+        if leaves_insert {
+            self.completion = None;
+        }
+        if consumed.iter().any(|c| *c) {
+            ctx.input_mut(|i| {
+                let mut k = 0;
+                i.events.retain(|_| {
+                    let keep = !consumed.get(k).copied().unwrap_or(false);
+                    k += 1;
+                    keep
+                });
+            });
+        }
+        if changed {
+            self.last_edit = Some(Instant::now());
+            self.cache = None;
+        }
+        if used {
+            let v = self.vim.as_ref().unwrap();
+            let range = match v.selection(&self.text) {
+                // the widget's selection shows the visual range; primary end = Vim's cursor side
+                Some((a, b)) if v.cursor < v.anchor => CCursorRange::two(CCursor::new(b), CCursor::new(a)),
+                Some((a, b)) => CCursorRange::two(CCursor::new(a), CCursor::new(b)),
+                None => CCursorRange::one(CCursor::new(v.cursor)),
+            };
+            self.vim_expected = Some(usize::from(range.primary.index));
+            self.set_cursor(ctx, range);
+        }
+        (action, used)
+    }
+
     fn selected_text(&self, ctx: &egui::Context) -> Option<String> {
         let st = egui::text_edit::TextEditState::load(ctx, self.id())?;
         let r = st.cursor.char_range()?;
@@ -346,7 +506,7 @@ impl EditorDoc {
     /// Intercepts keys for auto-closing, `\begin` completion and the
     /// completion popup. Returns typed text (if any) for completion updates.
     fn pre_input(&mut self, ctx: &egui::Context) -> Option<String> {
-        let Some(range) = self.cursor(ctx) else { return None };
+        let range = self.cursor(ctx)?;
         let (a, b) = sorted(range);
         let mut typed = None;
         let events = ctx.input(|i| i.events.clone());
@@ -380,15 +540,14 @@ impl EditorDoc {
                     let line_start = self.text[..byte].rfind('\n').map_or(0, |p| p + 1);
                     let line = &self.text[line_start..byte];
                     let indent: String = line.chars().take_while(|c| *c == ' ' || *c == '\t').collect();
-                    if let Some(env) = trailing_begin(line) {
-                        if !has_matching_end(&self.text[byte..], &env) {
+                    if let Some(env) = trailing_begin(line)
+                        && !has_matching_end(&self.text[byte..], &env) {
                             let ins = format!("\n{indent}  \n{indent}\\end{{{env}}}");
                             let cur = a + 1 + indent.chars().count() + 2;
                             self.splice(ctx, a, b, &ins, cur);
                             consumed[k] = true;
                             continue;
                         }
-                    }
                     // keep the indentation of the current line
                     if !indent.is_empty() {
                         let ins = format!("\n{indent}");
@@ -452,23 +611,7 @@ impl EditorDoc {
         let start = self.text[..ba].rfind('\n').map_or(0, |p| p + 1);
         let end = self.text[bb..].find('\n').map_or(self.text.len(), |p| bb + p);
         let block = &self.text[start..end];
-        let all_commented = block.lines().filter(|l| !l.trim().is_empty()).all(|l| l.trim_start().starts_with('%'));
-        let new: Vec<String> = block
-            .split('\n')
-            .map(|l| {
-                if all_commented {
-                    let ws = l.len() - l.trim_start().len();
-                    let rest = &l[ws..];
-                    let rest = rest.strip_prefix("% ").or_else(|| rest.strip_prefix('%')).unwrap_or(rest);
-                    format!("{}{}", &l[..ws], rest)
-                } else if l.trim().is_empty() {
-                    l.to_string()
-                } else {
-                    format!("% {l}")
-                }
-            })
-            .collect();
-        let new = new.join("\n");
+        let new = toggle_comment_block(block);
         let ca = self.text[..start].chars().count();
         let cb = ca + block.chars().count();
         let cur = ca + new.chars().count();
@@ -662,6 +805,30 @@ impl EditorDoc {
             self.find = Some(f);
         }
     }
+}
+
+/// Comments or uncomments lines. The `% ` goes at the smallest indentation
+/// of the block, so indented code stays aligned (like Overleaf).
+fn toggle_comment_block(block: &str) -> String {
+    let filled = || block.split('\n').filter(|l| !l.trim().is_empty());
+    let all_commented = filled().all(|l| l.trim_start().starts_with('%')) && filled().next().is_some();
+    let indent = filled().map(|l| l.len() - l.trim_start().len()).min().unwrap_or(0);
+    block
+        .split('\n')
+        .map(|l| {
+            if l.trim().is_empty() {
+                l.to_string()
+            } else if all_commented {
+                let ws = l.len() - l.trim_start().len();
+                let rest = &l[ws..];
+                let rest = rest.strip_prefix("% ").or_else(|| rest.strip_prefix('%')).unwrap_or(rest);
+                format!("{}{}", &l[..ws], rest)
+            } else {
+                format!("{}% {}", &l[..indent], &l[indent..])
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn sorted(r: CCursorRange) -> (usize, usize) {
@@ -919,6 +1086,34 @@ mod tests {
             assert_eq!(s.format.underline.width > 0.0, on_line_2 && !text.is_empty(), "{text:?}");
         }
         assert_eq!(pos, src.len());
+    }
+
+    #[test]
+    fn comment_toggle_keeps_indentation() {
+        let b = "  \\item a\n\n    \\item b";
+        let c = toggle_comment_block(b);
+        assert_eq!(c, "  % \\item a\n\n  %   \\item b");
+        assert_eq!(toggle_comment_block(&c), b);
+        assert_eq!(toggle_comment_block("x"), "% x");
+        assert_eq!(toggle_comment_block("%x"), "x");
+        assert_eq!(toggle_comment_block(""), "");
+    }
+
+    #[test]
+    fn detects_external_change() {
+        let dir = std::env::temp_dir().join(format!("arvidleaf-ext-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("a.tex");
+        std::fs::write(&f, "one").unwrap();
+        let mut d = EditorDoc::new("a.tex".into(), f.clone(), "one".into(), 1);
+        assert!(!d.changed_on_disk());
+        d.text.push_str(" mine");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&f, "theirs").unwrap();
+        assert!(d.changed_on_disk(), "external write must be noticed before saving");
+        d.save().unwrap();
+        assert!(!d.changed_on_disk());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

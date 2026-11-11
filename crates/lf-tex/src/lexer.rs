@@ -65,12 +65,11 @@ impl Out {
         if end <= start {
             return;
         }
-        if let Some(last) = self.spans.last_mut() {
-            if last.tok == tok && last.range.end == start {
+        if let Some(last) = self.spans.last_mut()
+            && last.tok == tok && last.range.end == start {
                 last.range.end = end;
                 return;
             }
-        }
         self.spans.push(Span { range: start..end, tok });
     }
 }
@@ -166,19 +165,16 @@ pub fn tokenize(src: &str) -> Vec<Span> {
                         while j < n && is_letter(b[j]) {
                             j += 1;
                         }
-                        if let Math::Env(e) = m {
-                            if &src[i + 1..j] == "end" {
+                        if let Math::Env(e) = m
+                            && &src[i + 1..j] == "end" {
                                 let k = skip_inline_ws(b, j);
-                                if k < n && b[k] == b'{' {
-                                    if let Some(e2) = match_group(b, k, b'{', b'}', 200) {
-                                        if &src[k + 1..e2 - 1] == e {
+                                if k < n && b[k] == b'{'
+                                    && let Some(e2) = match_group(b, k, b'{', b'}', 200)
+                                        && &src[k + 1..e2 - 1] == e {
                                             env_end = Some(i);
                                             break;
                                         }
-                                    }
-                                }
                             }
-                        }
                         i = j;
                         continue;
                     }
@@ -263,8 +259,8 @@ pub fn tokenize(src: &str) -> Vec<Span> {
                         }
                     } else if name == "begin" || name == "end" {
                         let k = skip_inline_ws(b, i);
-                        if k < n && b[k] == b'{' {
-                            if let Some(e) = match_group(b, k, b'{', b'}', 200) {
+                        if k < n && b[k] == b'{'
+                            && let Some(e) = match_group(b, k, b'{', b'}', 200) {
                                 out.push(i, k, Tok::Text);
                                 out.push(k, k + 1, Tok::Brace);
                                 out.push(k + 1, e - 1, Tok::Env);
@@ -274,63 +270,56 @@ pub fn tokenize(src: &str) -> Vec<Span> {
                                 if name == "begin" && VERBATIM_ENVS.contains(&env) {
                                     // options, then the literal body up to \end{env}
                                     let env = env.to_string();
-                                    if i < n && b[i] == b'[' {
-                                        if let Some(e) = match_group(b, i, b'[', b']', 4000) {
+                                    if i < n && b[i] == b'['
+                                        && let Some(e) = match_group(b, i, b'[', b']', 4000) {
                                             out.push(i, e, Tok::OptArg);
                                             i = e;
                                         }
-                                    }
-                                    if env == "minted" && i < n && b[i] == b'{' {
-                                        if let Some(e) = match_group(b, i, b'{', b'}', 200) {
+                                    if env == "minted" && i < n && b[i] == b'{'
+                                        && let Some(e) = match_group(b, i, b'{', b'}', 200) {
                                             out.push(i, i + 1, Tok::Brace);
                                             out.push(i + 1, e - 1, Tok::Arg);
                                             out.push(e - 1, e, Tok::Brace);
                                             i = e;
                                         }
-                                    }
                                     let end_pat = format!("\\end{{{env}}}");
                                     let body_end = src[i..].find(&end_pat).map_or(n, |p| i + p);
                                     out.push(i, body_end, if env == "comment" { Tok::Comment } else { Tok::Text });
                                     i = body_end;
                                 } else if name == "begin" && MATH_ENVS.contains(&env) {
                                     math = Some(Math::Env(env.to_string()));
-                                } else if name == "begin" && i < n && b[i] == b'[' {
-                                    if let Some(e) = match_group(b, i, b'[', b']', 4000) {
+                                } else if name == "begin" && i < n && b[i] == b'['
+                                    && let Some(e) = match_group(b, i, b'[', b']', 4000) {
                                         out.push(i, e, Tok::OptArg);
                                         i = e;
                                     }
-                                }
                             }
-                        }
                     } else if ARG_CMDS.contains(&name) {
                         // [opt] {arg}: only the first brace group is a key/path
                         loop {
                             let k = skip_inline_ws(b, i);
-                            if k < n && b[k] == b'[' {
-                                if let Some(e) = match_group(b, k, b'[', b']', 4000) {
+                            if k < n && b[k] == b'['
+                                && let Some(e) = match_group(b, k, b'[', b']', 4000) {
                                     out.push(i, k, Tok::Text);
                                     out.push(k, e, Tok::OptArg);
                                     i = e;
                                     continue;
                                 }
-                            }
-                            if k < n && b[k] == b'{' {
-                                if let Some(e) = match_group(b, k, b'{', b'}', 4000) {
+                            if k < n && b[k] == b'{'
+                                && let Some(e) = match_group(b, k, b'{', b'}', 4000) {
                                     out.push(i, k, Tok::Text);
                                     out.push(k, k + 1, Tok::Brace);
                                     out.push(k + 1, e - 1, Tok::Arg);
                                     out.push(e - 1, e, Tok::Brace);
                                     i = e;
                                 }
-                            }
                             break;
                         }
-                    } else if i < n && b[i] == b'[' {
-                        if let Some(e) = match_group(b, i, b'[', b']', 4000) {
+                    } else if i < n && b[i] == b'['
+                        && let Some(e) = match_group(b, i, b'[', b']', 4000) {
                             out.push(i, e, Tok::OptArg);
                             i = e;
                         }
-                    }
                 } else if d == b'(' {
                     out.push(i, i + 2, Tok::Math);
                     i += 2;
@@ -346,12 +335,11 @@ pub fn tokenize(src: &str) -> Vec<Span> {
                     }
                     out.push(i, e, Tok::Special);
                     i = e;
-                    if i < n && b[i] == b'[' {
-                        if let Some(e) = match_group(b, i, b'[', b']', 200) {
+                    if i < n && b[i] == b'['
+                        && let Some(e) = match_group(b, i, b'[', b']', 200) {
                             out.push(i, e, Tok::OptArg);
                             i = e;
                         }
-                    }
                 } else {
                     let e = i + 1 + char_len(b, i + 1);
                     out.push(i, e, Tok::Command);

@@ -30,18 +30,16 @@ fn build_preview(t: &Template) -> Result<lf_pdf::Image, String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let key = preview_key(t);
     let cached = dir.join(format!("{key}.ppm"));
-    if let Ok(d) = std::fs::read(&cached) {
-        if let Ok(img) = lf_pdf::parse_ppm(&d) {
+    if let Ok(d) = std::fs::read(&cached)
+        && let Ok(img) = lf_pdf::parse_ppm(&d) {
             return Ok(img);
         }
-    }
     // a user template may ship its own preview.png
-    if let Some(folder) = t.folder() {
-        if let Ok(img) = image::open(folder.join("preview.png")) {
+    if let Some(folder) = t.folder()
+        && let Ok(img) = image::open(folder.join("preview.png")) {
             let rgb = img.thumbnail(320, 450).to_rgb8();
             return Ok(lf_pdf::Image { width: rgb.width() as usize, height: rgb.height() as usize, rgb: rgb.into_raw() });
         }
-    }
     let work = dir.join(format!("build-{key}"));
     let _ = std::fs::remove_dir_all(&work);
     let vars = Vars { title: "Title".into(), author: "Author".into(), project: "preview".into() };
@@ -214,11 +212,10 @@ impl Gallery {
                     ui.horizontal(|ui| {
                         let shown = self.location.display().to_string();
                         ui.label(RichText::new(short_path(&shown, 18)).small()).on_hover_text(&shown);
-                        if ui.small_button("…").clicked() {
-                            if let Some(p) = rfd::FileDialog::new().set_directory(&self.location).pick_folder() {
+                        if ui.small_button("…").clicked()
+                            && let Some(p) = rfd::FileDialog::new().set_directory(&self.location).pick_folder() {
                                 self.location = p;
                             }
-                        }
                     });
                     ui.end_row();
                 });
@@ -331,12 +328,11 @@ impl Manager {
         let mut all: Vec<Template> = templates::builtins().into_iter().chain(templates::user_templates()).collect();
         templates::sort(&mut all);
         self.templates = all;
-        if let Some(id) = &self.selected {
-            if !self.templates.iter().any(|t| &t.id == id) {
+        if let Some(id) = &self.selected
+            && !self.templates.iter().any(|t| &t.id == id) {
                 self.selected = None;
                 self.edit = None;
             }
-        }
     }
 
     fn select(&mut self, id: &str) {
@@ -376,8 +372,8 @@ impl Manager {
                 ui.add(egui::TextEdit::singleline(&mut self.new_name).hint_text("Name").desired_width(180.0));
                 let ok = !self.new_name.trim().is_empty();
                 let meta = TemplateMeta { name: self.new_name.trim().to_string(), category: "My Templates".into(), ..Default::default() };
-                if let Some(p) = self.project.clone() {
-                    if ui.add_enabled(ok, egui::Button::new("from current project")).clicked() {
+                if let Some(p) = self.project.clone()
+                    && ui.add_enabled(ok, egui::Button::new("from current project")).clicked() {
                         let mut m = meta.clone();
                         if let Ok(pr) = lf_core::project::Project::open(&p) {
                             m.main = pr.meta.main.clone().unwrap_or(m.main);
@@ -385,16 +381,14 @@ impl Manager {
                         }
                         self.finish_create(templates::create_from_folder(&p, &m));
                     }
-                }
-                if ui.add_enabled(ok, egui::Button::new("from folder…")).clicked() {
-                    if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                if ui.add_enabled(ok, egui::Button::new("from folder…")).clicked()
+                    && let Some(dir) = rfd::FileDialog::new().pick_folder() {
                         let mut m = meta.clone();
                         if let Some(main) = lf_core::project::detect_main(&dir) {
                             m.main = main;
                         }
                         self.finish_create(templates::create_from_folder(&dir, &m));
                     }
-                }
             });
             ui.add_space(6.0);
             egui::Panel::left("tpl-list").resizable(true).default_size(300.0).frame(egui::Frame::new()).show(ui, |ui| {
@@ -481,11 +475,10 @@ impl Manager {
                                     previews.invalidate(&t.id);
                                     self.reload();
                                 }
-                                if ui.button("📂 Open folder").clicked() {
-                                    if let Some(f) = t.folder() {
+                                if ui.button("📂 Open folder").clicked()
+                                    && let Some(f) = t.folder() {
                                         crate::app::open_external(f);
                                     }
-                                }
                             }
                             if ui.button("Duplicate").on_hover_text("Copy into your templates to edit it").clicked() {
                                 match templates::copy_to_user(&t) {

@@ -51,7 +51,7 @@ Ein installierbares Paket baut `packaging/build-package.sh`
   Argumente, Optionen, Sonderzeichen), Zeilenumbruch, Zeilennummern mit Fehler-/Warnungs-
   markern, Autovervollständigung (Befehle, Umgebungen, `\ref`-Labels, `\cite`-Schlüssel,
   Dateien), automatisches Schließen von `{}`/`[]` und `\begin…\end`, Suchen & Ersetzen,
-  Kommentar umschalten, Auto-Save.
+  Kommentar umschalten, Auto-Save, optional Vim-Modus.
 - **Kompilieren**: pdfLaTeX, XeLaTeX oder LuaLaTeX über `latexmk`, im Hintergrund,
   abbrechbar, ohne Timeout. `\usepackage` nutzt die ganze TeX-Live-Installation; eigene
   `.sty`/`.cls`/`.bst`/`.bib` werden im ganzen Projekt (auch in Unterordnern) gefunden.
@@ -99,6 +99,14 @@ eingebettet) lassen sich ausblenden oder als eigene Kopie bearbeiten.
 | Strg+H | Historie |
 | Strg+Umschalt+N, Strg+O | neues Projekt / Ordner öffnen |
 
+### Vim-Modus
+
+*Edit › Vim Mode* schaltet Vim-Tastenbelegung im Editor ein (bleibt gespeichert). Unterstützt
+werden Normal-, Insert-, Visual- und Visual-Line-Modus, Zähler, Bewegungen (`w b e $ gg G f t %
+{ }` …), Operatoren `d c y > <` mit Textobjekten, darunter für LaTeX `i$`/`a$` (Inline-Mathe)
+und `ie`/`ae` (Umgebung), dazu `u`, Strg+R, `.`, `/ ? n N * #`, `:w` (speichern und
+kompilieren), `:<zeile>`, `:%s/alt/neu/g` (wörtlich). Der aktuelle Modus steht über dem Editor.
+
 ## Aufbau
 
 | Crate | Inhalt |
@@ -106,7 +114,7 @@ eingebettet) lassen sich ausblenden oder als eigene Kopie bearbeiten.
 | `lf-tex` | LaTeX-Tokenizer, Log-Parser, Compile-Runner (latexmk), SyncTeX, Outline, Vervollständigung, Werkzeugprüfung |
 | `lf-pdf` | Seitengrößen (`pdfinfo`), Seitenrendering (`pdftoppm`, PPM über stdout) mit Worker-Pool |
 | `lf-core` | Projekte, Einstellungen, Templates, Versionshistorie (inhaltsadressiert, dedupliziert), ZIP |
-| `lf-gui` | egui-Oberfläche; `theme.rs` stammt aus arvidlab |
+| `lf-gui` | egui-Oberfläche (`vim.rs`: Vim-Emulation); `theme.rs` stammt aus arvidlab |
 | `arvidleaf` | Programm (GUI, `--compile`, `--screenshot`) |
 
 ## Tests

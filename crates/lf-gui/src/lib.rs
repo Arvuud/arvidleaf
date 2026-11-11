@@ -9,6 +9,7 @@ pub mod offscreen;
 mod pdfview;
 mod templates_ui;
 mod theme;
+mod vim;
 
 /// Starts the desktop application (blocks until the window closes).
 pub fn run(open: Vec<std::path::PathBuf>) -> Result<(), String> {

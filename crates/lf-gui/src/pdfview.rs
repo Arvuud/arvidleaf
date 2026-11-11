@@ -136,11 +136,10 @@ impl PdfView {
             let Ok(img) = r.result else { continue };
             let page = r.request.page;
             // never replace newer pages with stale ones
-            if let Some(t) = self.textures.get(&page) {
-                if t.generation > r.request.generation || (t.generation == r.request.generation && (t.dpi - r.request.dpi).abs() < 0.5) {
+            if let Some(t) = self.textures.get(&page)
+                && (t.generation > r.request.generation || (t.generation == r.request.generation && (t.dpi - r.request.dpi).abs() < 0.5)) {
                     continue;
                 }
-            }
             if r.request.generation != self.generation && self.textures.contains_key(&page) {
                 continue;
             }
@@ -173,11 +172,10 @@ impl PdfView {
                 self.fit = Fit::Page;
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if let Some(src) = &self.source {
-                    if ui.small_button("↗").on_hover_text("Open in the system PDF viewer").clicked() {
+                if let Some(src) = &self.source
+                    && ui.small_button("↗").on_hover_text("Open in the system PDF viewer").clicked() {
                         crate::app::open_external(src);
                     }
-                }
                 let n = self.page_count();
                 if n > 0 {
                     ui.label(RichText::new(format!("{} / {}", self.current_page, n)).small().color(pal.dim));
@@ -230,11 +228,10 @@ impl PdfView {
             self.zoom_by(zoom);
         }
         let mut sa = egui::ScrollArea::both().id_salt("pdf-scroll").auto_shrink([false, false]);
-        if let Some((page, ypt)) = self.scroll_to.take() {
-            if let Some(top) = tops.get(page.saturating_sub(1) as usize) {
+        if let Some((page, ypt)) = self.scroll_to.take()
+            && let Some(top) = tops.get(page.saturating_sub(1) as usize) {
                 sa = sa.vertical_scroll_offset((top + ypt * z - avail.y * 0.3).max(0.0));
             }
-        }
         let dpi = ((72.0 * z * ppp) / 6.0).ceil() * 6.0;
         let generation = self.generation;
         let shown = self.shown.clone();
@@ -277,13 +274,12 @@ impl PdfView {
                         self.first_page_ms = self.loaded_at.map(|l| l.elapsed().as_millis());
                     }
                 }
-                if !have_current && !compiling {
-                    if let Some(path) = &shown {
+                if !have_current && !compiling
+                    && let Some(path) = &shown {
                         self.renderer.request(Request { generation, path: path.clone(), page: page_no, dpi });
                     }
-                }
-                if let Some((hit, at)) = &self.highlight {
-                    if hit.page == page_no {
+                if let Some((hit, at)) = &self.highlight
+                    && hit.page == page_no {
                         let a = (1.0 - at.elapsed().as_secs_f32() / 2.5).max(0.0);
                         if a > 0.0 {
                             let hr = egui::Rect::from_min_size(
@@ -295,7 +291,6 @@ impl PdfView {
                             ui.ctx().request_repaint();
                         }
                     }
-                }
                 // inverse search: double-click or Ctrl+click
                 if let Some(pos) = resp.interact_pointer_pos() {
                     let ctrl_click = resp.clicked() && ui.input(|i| i.modifiers.command);

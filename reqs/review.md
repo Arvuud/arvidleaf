@@ -54,4 +54,52 @@ Could: Rechtschreibprüfung ❌, Symbol-Palette ❌, Code-Folding ❌, Vim-Keybi
 3. **Externe Änderungen:** Datei in einem anderen Editor ändern, während sie in arvidleaf offen ist (mit und ohne ungespeicherte Änderungen).
 4. **Echte Dokumente** des Nutzers (z. B. ein Overleaf-Projekt als ZIP). Erfahrung aus arvidlab: echte Dateien finden mehr als selbstgebaute Kataloge.
 5. Nach `install.sh` (mit Abhängigkeiten): Artikel (Deutsch) kompiliert, `biber`/biblatex-Projekt.
-6. `clippy` installieren (`rustup component add clippy`) und Warnungen abarbeiten.
+6. ~~`clippy` installieren und Warnungen abarbeiten~~ → erledigt in Testiteration 1.
+
+## 5. Testiteration 1 (11.11.2026)
+
+Getestet: 12 neue Kompilier-Szenarien (`--compile`), Tippverhalten im Offscreen-Fenster
+(Auto-Schließen, `\begin`→`\end`, Strg+/), CRLF/BOM-Dateien, Änderungen von außen
+(Code-Durchsicht und Test), `clippy`. Dazu kam der Vim-Modus (Nutzerwunsch).
+
+| # | Schwere | Unerwartetes Verhalten | Fix | Absicherung |
+|---|---|---|---|---|
+| T1 | hoch | **Auto-Save überschreibt Änderungen von außen:** Auto-Save (1 s) lief vor der Prüfung auf Änderungen von außen (alle 2 s). Hat ein anderes Programm die Datei geändert, während man tippte, wurde die fremde Änderung kommentarlos überschrieben. | Vor jedem Auto-Save wird der Zeitstempel auf der Platte geprüft; bei Abweichung erscheint der Konflikt-Hinweis („changed on disk“ mit Reload / Keep mine). | Test `detects_external_change` |
+| T2 | mittel | **Mehrzeilige Fehlermeldungen abgeschnitten:** z. B. „Unicode character ∑ (U+2211)“ ohne „not set up for use with LaTeX“, fontspec-Meldung endet mit „requires either XeTeX or“. | Fortsetzungszeilen (`(paket)  …` und tief eingerückte Zeilen) werden angehängt, wie schon bei Warnungen. | Test `multi_line_errors_and_followups` |
+| T3 | mittel | **Fehler in Systemdateien:** Bei `fontspec` unter pdfLaTeX zeigte der Fehler auf `/usr/share/…/fontspec.sty:101`; im Projekt war keine Zeile markiert, und es gab keinen Hinweis auf die Lösung. | Der Fehler zeigt auf die `\usepackage`-Zeile im Projekt („reported in fontspec.sty:101“ im Kontext). Dazu kommt der Hinweis „switch the engine to XeLaTeX or LuaLaTeX (Build › Engine)“. | Szenario `fontspec` |
+| T4 | mittel | **Fehlendes `\end{document}`:** Gemeldet wurden nur „Emergency stop.“ und „==> Fatal error occurred“, ohne Datei und Zeile. Die eigentliche Ursache („no legal \end found“) fehlte. | Neue Meldung „Missing \end{document}: the file ended before the document was closed“, in der Hauptdatei an deren letzter Zeile. | Test `missing_end_document_and_runaway`; offscreen geprüft |
+| T5 | mittel | **Fehlende `}`** („File ended while scanning use of \textbf“) ohne Zeile, dazu zwei Folgefehler. | Der Text aus „Runaway argument?“ wird im Quelltext gesucht, und der Fehler zeigt auf die Zeile, an der das Argument beginnt (nur bei eindeutigem Treffer). Dazu kommt der Hinweis „Probably a missing `}`“. | Test `missing_end_document_and_runaway`; Szenario `runaway` |
+| T6 | niedrig | **Folgefehler** „Emergency stop“ und „==> Fatal error occurred“ wurden zusätzlich zum echten Fehler als eigene Fehler gezählt (3 statt 1). | Werden ausgeblendet, sobald es einen anderen Fehler gibt. | Tests T2/T4 |
+| T7 | niedrig | **Strg+/** setzte `% ` in Spalte 0 vor die Einrückung (`%   \item`). | `% ` steht auf der kleinsten Einrückung des Blocks (`  % \item`). Entkommentieren funktioniert für beide Formen. | Test `comment_toggle_keeps_indentation` |
+| T8 | – | **Vim-Modus: Escape nahm dem Editor den Fokus.** egui gibt den Fokus bei Escape ab, außer das Widget beansprucht die Taste. Escape kam deshalb nie beim Vim-Modus an. | Im Vim-Modus beansprucht der Editor Escape über den Fokus-Filter. | offscreen: `ifoo<Esc>jj` |
+| T9 | Stil | `clippy`: 60 Hinweise (meist zusammenfassbare `if`). Keine echten Fehler. | Behoben bzw. begründet erlaubt (`large_enum_variant`, generierter Template-Typ). | `cargo clippy --workspace --all-targets` ohne Warnung |
+
+**Ohne Befund:** biblatex + biber; `\input` mit Fehler im Unterordner (Datei und Zeile korrekt);
+Leerzeichen in Ordner- und Dateinamen; `minted` (TeX Live 2026 braucht kein Shell-Escape mehr);
+undefinierte Referenzen und Zitate (Warnungen mit Zeile); mehrere `\documentclass`-Dateien
+(Hauptdatei richtig erkannt); `makeindex`; `latexmkrc` im Projekt (Build-Ordner bleibt
+`.arvidleaf/build`); CRLF-Zeilenenden und UTF-8-BOM; Auto-Schließen von `{}`/`[]` und
+Übertippen; `\{` ohne Paar; `\begin{itemize}` + Enter ergänzt `\end{itemize}` mit Einrückung.
+
+### Vim-Modus
+
+*Edit › Vim Mode* schaltet den Modus ein und aus (gespeichert in `config.toml`, `vim = true`).
+Der Modus wird links über dem Editor angezeigt (`-- NORMAL --`, `-- INSERT --`, `-- VISUAL --`,
+dazu noch nicht abgeschlossene Befehle oder die `:`-Zeile). Im Normalmodus erscheint ein
+Block-Cursor.
+
+- Modi: Normal, Insert, Visual (`v`), Visual-Line (`V`)
+- Bewegungen mit Zähler: `h j k l w b e W B E 0 ^ $ gg G f F t T ; , % { } n N + - Enter`, Strg+D/U
+- Operatoren: `d c y > <` mit Bewegung, Zeile (`dd`, `cc`, `yy`, `>>`) oder Textobjekt;
+  `x X s S D C Y r J ~ p P o O i a I A u` Strg+R `.`
+- Textobjekte: `iw aw iW aW i( i[ i{ i< i" i' ib iB` und für LaTeX **`i$`/`a$`** (Inline-Mathe)
+  und **`ie`/`ae`** (`\begin…\end`-Umgebung, die innerste um den Cursor)
+- Suche: `/` `?` `*` `#` (wörtlich, smartcase); Ex: `:w` (speichern + kompilieren wie Strg+S),
+  `:<zeile>`, `:$`, `:s/a/b/[g]`, `:%s/a/b/g` (wörtlich, ohne reguläre Ausdrücke)
+- Kopieren mit `y` geht zusätzlich in die Zwischenablage. Im Insert-Modus gelten weiter
+  Auto-Schließen, `\begin`-Ergänzung und Autovervollständigung.
+- Nicht enthalten: Makros (`q`), Marken (`m`), benannte Register (`"a`), Visual-Block
+  (Strg+V), reguläre Ausdrücke.
+
+Tests: 10 Unit-Tests (`vim::tests`, über 100 Tastenfolgen) und offscreen geprüft:
+`ggjjwwdiwifoo<Esc>`, `vi$`, `Gkdd:w<CR>` speichert, Menü-Schalter.

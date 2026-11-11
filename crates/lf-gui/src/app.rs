@@ -37,6 +37,7 @@ struct ImageDoc {
     tex: Option<Result<TextureHandle, String>>,
 }
 
+#[allow(clippy::large_enum_variant)] // few open documents, mostly text
 enum Doc {
     Text(EditorDoc),
     Image(ImageDoc),
@@ -179,12 +180,11 @@ impl App {
             // a file: open its folder as project and the file in it
             if let Some(dir) = p.parent() {
                 self.open_project(dir);
-                if let (Some(ws), Ok(abs)) = (&self.ws, p.canonicalize()) {
-                    if let Ok(rel) = abs.strip_prefix(&ws.project.root) {
+                if let (Some(ws), Ok(abs)) = (&self.ws, p.canonicalize())
+                    && let Ok(rel) = abs.strip_prefix(&ws.project.root) {
                         let rel = rel.to_path_buf();
                         self.open_file(&rel);
                     }
-                }
             }
         }
     }
@@ -325,20 +325,18 @@ impl App {
 
     fn open_at(&mut self, rel: &Path, line: u32) {
         self.open_file(rel);
-        if let Some(ws) = &mut self.ws {
-            if let Some(Doc::Text(d)) = ws.active.and_then(|a| ws.docs.get_mut(a)) {
+        if let Some(ws) = &mut self.ws
+            && let Some(Doc::Text(d)) = ws.active.and_then(|a| ws.docs.get_mut(a)) {
                 d.goto_line(line);
             }
-        }
     }
 
     fn close_doc(&mut self, i: usize) {
         let Some(ws) = &mut self.ws else { return };
-        if let Some(Doc::Text(d)) = ws.docs.get_mut(i) {
-            if d.dirty() {
+        if let Some(Doc::Text(d)) = ws.docs.get_mut(i)
+            && d.dirty() {
                 let _ = d.save();
             }
-        }
         if i < ws.docs.len() {
             ws.docs.remove(i);
         }
@@ -354,14 +352,13 @@ impl App {
         let Some(ws) = &mut self.ws else { return 0 };
         let mut n = 0;
         for d in &mut ws.docs {
-            if let Doc::Text(d) = d {
-                if d.dirty() {
+            if let Doc::Text(d) = d
+                && d.dirty() {
                     match d.save() {
                         Ok(()) => n += 1,
                         Err(e) => self.status = format!("Could not save {}: {e}", d.rel.display()),
                     }
                 }
-            }
         }
         n
     }
@@ -371,10 +368,12 @@ impl App {
         let mut saved = false;
         let mut pending = false;
         for d in &mut ws.docs {
-            if let Doc::Text(d) = d {
-                if d.dirty() && !d.conflict {
+            if let Doc::Text(d) = d
+                && d.dirty() && !d.conflict {
                     match d.last_edit {
                         Some(t) if t.elapsed() < AUTOSAVE => pending = true,
+                        // never overwrite what another program just wrote
+                        _ if d.changed_on_disk() => d.conflict = true,
                         _ => {
                             if d.save().is_ok() {
                                 saved = true;
@@ -382,7 +381,6 @@ impl App {
                         }
                     }
                 }
-            }
         }
         if saved && ws.project.meta.auto_compile {
             ws.compile_due = Some(Instant::now());
@@ -399,16 +397,14 @@ impl App {
             return;
         }
         for d in &mut ws.docs {
-            if let Doc::Text(d) = d {
-                let m = std::fs::metadata(&d.abs).and_then(|m| m.modified()).ok();
-                if m.is_some() && m != d.disk_mtime && !d.conflict {
+            if let Doc::Text(d) = d
+                && !d.conflict && d.changed_on_disk() {
                     if d.dirty() {
                         d.conflict = true;
                     } else {
                         let _ = d.reload();
                     }
                 }
-            }
         }
         self.rescan();
         self.ctx.request_repaint_after(Duration::from_secs(2));
@@ -506,11 +502,10 @@ impl App {
                     }
                     ws.compiling = None;
                     let out = *out;
-                    if let Some(pdf) = &out.pdf {
-                        if !out.cancelled {
+                    if let Some(pdf) = &out.pdf
+                        && !out.cancelled {
                             ws.pdf.load(pdf);
                         }
-                    }
                     let had_errors = ws.last.as_ref().is_some_and(|l| l.errors() > 0);
                     self.status = if let Some(e) = &out.launch_error {
                         e.clone()
@@ -598,11 +593,10 @@ impl App {
         self.autosave();
         self.watch();
         self.refresh_refs(false);
-        if let Some(ws) = &mut self.ws {
-            if ws.compile_due.is_some_and(|t| t.elapsed() > Duration::from_millis(300)) {
+        if let Some(ws) = &mut self.ws
+            && ws.compile_due.is_some_and(|t| t.elapsed() > Duration::from_millis(300)) {
                 self.compile();
             }
-        }
         self.periodic_snapshot();
         let pal = theme::palette(&ctx);
         self.shortcuts(&ctx);
@@ -751,11 +745,10 @@ impl App {
         if history {
             self.toggle_history();
         }
-        if close {
-            if let Some(a) = self.ws.as_ref().and_then(|w| w.active) {
+        if close
+            && let Some(a) = self.ws.as_ref().and_then(|w| w.active) {
                 self.close_doc(a);
             }
-        }
         // zoom the PDF with Ctrl +/- when the editor does not have focus
         let (zin, zout) = ctx.input(|i| (i.modifiers.command && i.key_pressed(Key::Plus) || i.modifiers.command && i.key_pressed(Key::Equals), i.modifiers.command && i.key_pressed(Key::Minus)));
         if let Some(ws) = &mut self.ws {
@@ -798,6 +791,12 @@ impl App {
                     }
                     if ui.button("Go to File…    Ctrl+P").clicked() {
                         self.dialog = Some(Dialog::QuickOpen { query: String::new(), selected: 0 });
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.checkbox(&mut self.cfg.vim, "Vim Mode").on_hover_text("Vim key bindings in the editor (normal, insert, visual mode; :w saves)").changed() {
+                        let _ = self.cfg.save();
+                        self.status = if self.cfg.vim { "Vim mode on – Esc for normal mode, i to insert".into() } else { "Vim mode off".into() };
                         ui.close();
                     }
                     ui.label(RichText::new("In the editor: Ctrl+F find · Ctrl+/ comment · Ctrl+J show in PDF").small().color(pal.dim));
@@ -1095,11 +1094,10 @@ impl App {
             let (r, _) = ui.allocate_exact_size(vec2(10.0, 10.0), egui::Sense::hover());
             ui.painter().circle_filled(r.center(), 4.0, dot);
             let lbl = ui.add(egui::Label::new(RichText::new(txt).small()).sense(egui::Sense::click()));
-            if let Some(ws) = &mut self.ws {
-                if lbl.on_hover_text("Show problems").clicked() {
+            if let Some(ws) = &mut self.ws
+                && lbl.on_hover_text("Show problems").clicked() {
                     ws.problems_open = !ws.problems_open;
                 }
-            }
             ui.separator();
             ui.label(RichText::new(&self.status).small().color(pal.dim));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1139,11 +1137,10 @@ impl App {
                 if ui.add(big("📂 Open Folder")).on_hover_text("Ctrl+O").clicked() {
                     self.open_dialog();
                 }
-                if ui.add(big("📦 Import ZIP")).on_hover_text("e.g. an Overleaf download").clicked() {
-                    if let Some(p) = rfd::FileDialog::new().add_filter("ZIP archive", &["zip"]).pick_file() {
+                if ui.add(big("📦 Import ZIP")).on_hover_text("e.g. an Overleaf download").clicked()
+                    && let Some(p) = rfd::FileDialog::new().add_filter("ZIP archive", &["zip"]).pick_file() {
                         self.import_zip(&p);
                     }
-                }
             });
             ui.add_space(24.0);
             let missing: Vec<&lf_tex::tools::Tool> = self.tools.iter().filter(|t| !t.found).collect();
@@ -1214,11 +1211,10 @@ impl App {
                 Some(HistoryAction::Close) => ws.history_view = None,
                 Some(HistoryAction::Restored) => {
                     for d in &mut ws.docs {
-                        if let Doc::Text(d) = d {
-                            if d.abs.is_file() {
+                        if let Doc::Text(d) = d
+                            && d.abs.is_file() {
                                 let _ = d.reload();
                             }
-                        }
                     }
                     ws.docs.retain(|d| match d {
                         Doc::Text(t) => t.abs.is_file(),
@@ -1252,8 +1248,15 @@ impl App {
                 editor_action = self.editor_pane(ui, pal);
             }
         });
-        if let Some(EditorAction::SyncToPdf(l, c)) = editor_action {
-            self.forward_sync(l, c);
+        match editor_action {
+            Some(EditorAction::SyncToPdf(l, c)) => self.forward_sync(l, c),
+            Some(EditorAction::Save) => {
+                // `:w` behaves like Ctrl+S
+                let n = self.save_all();
+                self.status = format!("Saved {n} file{}", if n == 1 { "" } else { "s" });
+                self.compile();
+            }
+            None => {}
         }
         if let Some(PdfAction::Inverse(p, x, y)) = pdf_action {
             self.inverse_sync(p, x, y);
@@ -1273,6 +1276,7 @@ impl App {
 
     fn editor_pane(&mut self, ui: &mut egui::Ui, pal: &Palette) -> Option<EditorAction> {
         let font_size = self.cfg.font_size;
+        let vim = self.cfg.vim;
         let ws = self.ws.as_mut()?;
         // tabs
         let mut close = None;
@@ -1344,7 +1348,7 @@ impl App {
                     })
                     .map(|e| (e.line.unwrap(), e.level, e.message.clone()))
                     .collect();
-                let env = EditorEnv { problems, labels: &ws.labels, bib_keys: &ws.bib_keys, files: &files, font_size };
+                let env = EditorEnv { problems, labels: &ws.labels, bib_keys: &ws.bib_keys, files: &files, font_size, vim };
                 d.ui(ui, pal, &env)
             }
             Doc::Image(im) => {
@@ -1530,8 +1534,8 @@ impl App {
                     .response;
                 let r = ui.interact(r.rect, ui.scope_id().with(("problem", &e.message, e.line)), egui::Sense::click());
                 let r = if e.context.is_empty() { r } else { r.on_hover_text(RichText::new(&e.context).monospace()) };
-                if r.clicked() {
-                    if let Some(line) = e.line {
+                if r.clicked()
+                    && let Some(line) = e.line {
                         let file = e.file.clone().or_else(|| ws.project.meta.main.clone());
                         if let Some(f) = file {
                             let f = Path::new(&f);
@@ -1541,7 +1545,6 @@ impl App {
                             }
                         }
                     }
-                }
             }
             if !any {
                 ui.label(RichText::new(if l.ok { "No problems. 🎉" } else { "Nothing to show with the current filters." }).color(pal.dim));
@@ -1571,8 +1574,8 @@ impl App {
                     ui.colored_label(pal.error, e.as_str());
                 }
                 ui.horizontal(|ui| {
-                    if (ui.button("Create").clicked() || enter) && !name.trim().is_empty() {
-                        if let Some(root) = &root {
+                    if (ui.button("Create").clicked() || enter) && !name.trim().is_empty()
+                        && let Some(root) = &root {
                             let rel = dir.join(name.trim());
                             let res = if *folder { project::create_dir(root, &rel) } else { project::create_file(root, &rel, b"") };
                             match res {
@@ -1586,7 +1589,6 @@ impl App {
                                 Err(e) => *error = Some(e.to_string()),
                             }
                         }
-                    }
                     if ui.button("Cancel").clicked() || esc {
                         keep = false;
                     }
@@ -1602,8 +1604,8 @@ impl App {
                     ui.colored_label(pal.error, e.as_str());
                 }
                 ui.horizontal(|ui| {
-                    if (ui.button("Rename").clicked() || enter) && !name.trim().is_empty() {
-                        if let Some(root) = &root {
+                    if (ui.button("Rename").clicked() || enter) && !name.trim().is_empty()
+                        && let Some(root) = &root {
                             let to = from.parent().map(|p| p.join(name.trim())).unwrap_or_else(|| PathBuf::from(name.trim()));
                             self.save_all();
                             match project::rename(root, from, &to) {
@@ -1636,7 +1638,6 @@ impl App {
                                 Err(e) => *error = Some(e.to_string()),
                             }
                         }
-                    }
                     if ui.button("Cancel").clicked() || esc {
                         keep = false;
                     }
