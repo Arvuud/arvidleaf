@@ -1,0 +1,6 @@
+name = "Thesis / Report"
+category = "Book"
+description = "KOMA-Script book with title page, table of contents, one file per chapter, appendix and bibliography."
+main = "main.tex"
+engine = "pdflatex"
+order = 20

@@ -1,0 +1,63 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[hidelinks]{hyperref}
+
+\title{{{title}}}
+\author{{{author}}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+  A short summary of the article.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+Write your text here. Cite sources like this~\cite{knuth1984}.
+Section~\ref{sec:method} describes the method.
+
+\section{Method}
+\label{sec:method}
+An equation with a number:
+\begin{equation}
+  E = mc^2 \label{eq:energy}
+\end{equation}
+Equation~\eqref{eq:energy} is famous.
+
+\begin{figure}[htbp]
+  \centering
+  \fbox{\rule{0pt}{3cm}\rule{0.6\linewidth}{0pt}}
+  \caption{Replace this box with \texttt{\textbackslash includegraphics}.}
+  \label{fig:placeholder}
+\end{figure}
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabular}{lrr}
+    \toprule
+    Item & Value & Unit \\
+    \midrule
+    Length & 1.5 & m \\
+    Mass   & 3.2 & kg \\
+    \bottomrule
+  \end{tabular}
+  \caption{A table with \texttt{booktabs}.}
+  \label{tab:values}
+\end{table}
+
+\section{Conclusion}
+Summarise your results.
+
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}

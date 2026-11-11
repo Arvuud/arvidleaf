@@ -1,0 +1,31 @@
+\documentclass[11pt,a4paper]{moderncv}
+
+\moderncvstyle{classic}
+\moderncvcolor{blue}
+\usepackage[T1]{fontenc}
+\usepackage[scale=0.8]{geometry}
+
+\name{{{author}}}{}
+\title{{{title}}}
+\address{Street 1}{12345 City}{Country}
+\phone[mobile]{+49 123 456789}
+\email{name@example.org}
+
+\begin{document}
+\makecvtitle
+
+\section{Education}
+\cventry{2020--2024}{B.Sc. Subject}{University}{City}{}{Thesis: \emph{Title}}
+
+\section{Experience}
+\cventry{2024--today}{Position}{Company}{City}{}{%
+  \begin{itemize}
+    \item Responsibility one
+    \item Responsibility two
+  \end{itemize}}
+
+\section{Skills}
+\cvitem{Languages}{German (native), English (fluent)}
+\cvitem{Software}{\LaTeX, Rust, Python}
+
+\end{document}

@@ -1,0 +1,35 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{enumitem}
+
+\newtheorem{theorem}{Theorem}
+\theoremstyle{definition}
+\newtheorem{exercise}{Exercise}
+\newtheorem*{solution}{Solution}
+
+\begin{document}
+
+\noindent\textbf{{{title}}} \hfill {{author}} \\
+\rule{\linewidth}{0.4pt}
+
+\begin{exercise}[4 points]
+  Show that $\sum_{k=1}^{n} k = \frac{n(n+1)}{2}$.
+\end{exercise}
+
+\begin{solution}
+  By induction on $n$.
+\end{solution}
+
+\begin{exercise}
+  Compute
+  \begin{enumerate}[label=(\alph*)]
+    \item $\int_0^\pi \sin x \,\mathrm{d}x$,
+    \item $\lim_{x\to 0} \frac{\sin x}{x}$.
+  \end{enumerate}
+\end{exercise}
+
+\end{document}

@@ -1,0 +1,6 @@
+name = "Letter"
+category = "Letter"
+description = "KOMA-Script letter (scrlttr2) with sender, recipient, subject and enclosures."
+main = "main.tex"
+engine = "pdflatex"
+order = 40

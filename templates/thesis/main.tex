@@ -1,0 +1,41 @@
+\documentclass[12pt,a4paper,oneside,parskip=half,bibliography=totoc]{scrbook}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+
+\graphicspath{{figures/}}
+
+\begin{document}
+
+\frontmatter
+\begin{titlepage}
+  \centering
+  \vspace*{3cm}
+  {\Huge\bfseries {{title}}\par}
+  \vspace{2cm}
+  {\Large {{author}}\par}
+  \vfill
+  {\large \today\par}
+\end{titlepage}
+
+\tableofcontents
+
+\mainmatter
+\include{chapters/introduction}
+\include{chapters/background}
+\include{chapters/conclusion}
+
+\appendix
+\chapter{Additional Material}
+Supplementary tables and derivations go here.
+
+\backmatter
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}

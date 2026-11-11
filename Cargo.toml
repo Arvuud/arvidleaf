@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["crates/lf-tex", "crates/lf-pdf", "crates/lf-core", "crates/lf-gui", "crates/arvidleaf"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+lf-tex = { path = "crates/lf-tex" }
+lf-pdf = { path = "crates/lf-pdf" }
+lf-core = { path = "crates/lf-core" }
+lf-gui = { path = "crates/lf-gui" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+debug = false
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

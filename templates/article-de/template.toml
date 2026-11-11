@@ -1,0 +1,6 @@
+name = "Artikel (Deutsch)"
+category = "Article"
+description = "Deutscher Artikel mit babel/ngerman, Mathematik und Literaturverzeichnis. Braucht das Paket texlive-langgerman."
+main = "main.tex"
+engine = "pdflatex"
+order = 11

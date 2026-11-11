@@ -1,0 +1,6 @@
+name = "Exercise Sheet"
+category = "Notes"
+description = "Exercise sheet or lecture notes with numbered exercises, theorems and solutions."
+main = "main.tex"
+engine = "pdflatex"
+order = 60

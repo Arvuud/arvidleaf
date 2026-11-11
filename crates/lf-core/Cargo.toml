@@ -1,0 +1,19 @@
+[package]
+name = "lf-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+lf-tex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+similar = "2"
+sha2 = "0.10"
+miniz_oxide = "0.9"
+zip = { version = "9", default-features = false, features = ["deflate"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[dev-dependencies]
+lf-pdf.workspace = true

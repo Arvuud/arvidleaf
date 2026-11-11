@@ -1,0 +1,10 @@
+[package]
+name = "arvidleaf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+lf-gui.workspace = true
+lf-tex.workspace = true
+lf-core.workspace = true

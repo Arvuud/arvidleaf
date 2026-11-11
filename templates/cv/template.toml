@@ -1,0 +1,6 @@
+name = "Curriculum Vitae"
+category = "CV"
+description = "Modern CV with moderncv (classic style): education, experience, skills."
+main = "main.tex"
+engine = "pdflatex"
+order = 50

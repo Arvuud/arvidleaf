@@ -1,0 +1,40 @@
+\documentclass[11pt,a4paper]{scrartcl}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[ngerman]{babel}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+
+\title{{{title}}}
+\author{{{author}}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+  Eine kurze Zusammenfassung.
+\end{abstract}
+
+\section{Einleitung}
+\label{sec:einleitung}
+Hier beginnt der Text. Quellen werden so zitiert~\cite{knuth1984}.
+Abschnitt~\ref{sec:methode} beschreibt das Vorgehen.
+
+\section{Methode}
+\label{sec:methode}
+\begin{equation}
+  a^2 + b^2 = c^2 \label{eq:pythagoras}
+\end{equation}
+
+\section{Fazit}
+Ergebnisse zusammenfassen.
+
+\bibliographystyle{plaindin}
+\bibliography{refs}
+
+\end{document}

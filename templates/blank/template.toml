@@ -1,0 +1,6 @@
+name = "Blank"
+category = "Basic"
+description = "An empty article: document class and nothing else."
+main = "main.tex"
+engine = "pdflatex"
+order = 0

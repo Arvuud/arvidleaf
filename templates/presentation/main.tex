@@ -1,0 +1,48 @@
+\documentclass[aspectratio=169]{beamer}
+
+\usetheme{metropolis}
+\usepackage{booktabs}
+
+\title{{{title}}}
+\author{{{author}}}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{frame}{Outline}
+  \tableofcontents
+\end{frame}
+
+\section{Introduction}
+
+\begin{frame}{Motivation}
+  \begin{itemize}
+    \item First point
+    \item<2-> Second point appears on click
+  \end{itemize}
+\end{frame}
+
+\section{Results}
+
+\begin{frame}{Two Columns}
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+      \begin{block}{Definition}
+        $f(x) = x^2$
+      \end{block}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \begin{alertblock}{Note}
+        Blocks highlight content.
+      \end{alertblock}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}[standout]
+  Questions?
+\end{frame}
+
+\end{document}

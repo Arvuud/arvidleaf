@@ -1,0 +1,6 @@
+name = "Presentation (Beamer)"
+category = "Presentation"
+description = "Beamer slides in 16:9 with title page, outline, columns and blocks."
+main = "main.tex"
+engine = "pdflatex"
+order = 30

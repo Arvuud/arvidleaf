@@ -1,0 +1,6 @@
+name = "Article (English)"
+category = "Article"
+description = "Single-column article with abstract, math, a figure, a table and a BibTeX bibliography."
+main = "main.tex"
+engine = "pdflatex"
+order = 10
