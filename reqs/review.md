@@ -129,3 +129,25 @@ App-Menü-Eintrag), `desktop-file-validate`.
 - Bei `\frac{1}{2` in `align` zeigt der Fehler auf den Anfang der Umgebung (Zeile 6), nicht auf
   Zeile 7. TeX liest die ganze Umgebung als Argument, genauer geht es aus dem Log nicht.
 - Auf diesem Rechner fehlt `texlive-langgerman` (`sudo pacman -S texlive-langgerman`).
+
+## 7. Testiteration 3 (12.11.2026)
+
+Getestet im Testordner `~/Documents/arvidleaf/test`: die Testdatei des Nutzers (`main.tex`), eine
+neu erzeugte Lorem-Ipsum-Arbeit (`lorem-thesis/`: `report`, 6 Kapitel per `\include`/`\input`,
+biblatex + biber, cleveref, siunitx, TikZ, PNG-Bild, enumitem, 41 Seiten) und eine Kopie mit
+eingebauten Fehlern (`lorem-errors/`). Dazu offscreen: Öffnen der Projekte und Klick auf einen
+Fehler im Problems-Panel.
+
+| # | Schwere | Unerwartetes Verhalten | Fix | Absicherung |
+|---|---|---|---|---|
+| T14 | mittel | **„Something's wrong--perhaps a missing \item“ ohne Erklärung** (Nutzer-Fund): `\begin{enumerate}[label=\alph*)]` ohne `enumitem`. Das ist kein Fehler von arvidleaf, die TeX-Meldung führt aber in die Irre. | Neues Modul `lf-tex/src/hints.rs`: Hinweise für typische Ursachen. Listen-Optionen ohne `enumitem`; ~40 Befehle (`\toprule`, `\SI`, `\cref`, `\href`, `\mathbb` …) und ~20 Umgebungen (`align`, `tikzpicture`, `lstlisting` …), deren Paket nicht geladen ist; „Missing $ inserted“. Ein Hinweis erscheint nur, wenn das Paket (oder ein Paket, das es mitlädt) wirklich fehlt. | Tests `hints::tests` |
+| T15 | mittel | **Andere Dokumente im Ordner zählten mit:** Die Paketsuche (und die Zuordnung „fehlendes Paket → `\usepackage`-Zeile“) durchsuchte alle `.tex` im Projektordner, also auch Unterprojekte mit eigenem `\documentclass`. Im Testordner unterdrückte das `enumitem` aus `lorem-thesis/` den Hinweis für `main.tex`. | Gesucht wird nur in der Hauptdatei und in Dateien ohne eigenes `\documentclass`. | offscreen + `--compile` im Testordner |
+| T16 | mittel | **Sprung zur Fehlerzeile landete daneben:** Ein Klick auf `03-method.tex:64` öffnete die Datei und setzte den Cursor auf Zeile 64. Sichtbar waren aber die Zeilen 36–56: Beim ersten Öffnen gibt es noch kein Layout, und die Schätzung „Zeile × Zeilenhöhe“ ignoriert umbrochene Zeilen. Betrifft auch Outline und Quick-Open bei frisch geöffneten Dateien. | Nach der Schätzung wird im nächsten Frame mit dem echten Layout exakt nachgescrollt. | offscreen: Klick auf Fehler, Zeile 64 mit Markern im Bild |
+
+**Ohne Befund:** 41-seitige Arbeit kompiliert (erstes Mal 17,8 s mit biber; danach 3,2 s pro
+Änderung, genauso schnell wie latexmk direkt). Fehler in `\include`-Kapiteln zeigen auf Kapiteldatei
+und Zeile; fehlendes Bild, undefinierte Referenz und undefiniertes Zitat mit Zeile; Outline über
+alle Kapitel.
+
+**Bekannt, nicht geändert:** Fehlt ein Paket für eine Umgebung (z. B. `tikzpicture`), folgen
+3–4 „Undefined control sequence“ aus ihrem Inhalt. Der erste Fehler trägt den Hinweis.

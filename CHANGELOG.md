@@ -7,6 +7,10 @@ Behoben (Details: `reqs/review.md` Abschnitt 6):
 - Fehlende Bilder und `\input`-Dateien wurden als fehlendes TeX-Paket gemeldet.
 - Fehlt eine babel-Sprache, erscheint nur noch dieser Fehler statt sechs Folgefehlern.
 - Vorlage *cv* ohne Schriftwarnung; `.desktop` mit gültigen Kategorien.
+- Neu: Hinweise zu typischen Ursachen, z. B. Listen-Optionen ohne `enumitem`, `\toprule` ohne
+  `booktabs`, `align` ohne `amsmath`, „Missing $ inserted“ (`reqs/review.md` Abschnitt 7).
+- Sprung zu einer Fehlerzeile in einer frisch geöffneten Datei landete bei umbrochenen Zeilen zu weit oben.
+- Paketprüfung ignoriert andere Dokumente im selben Ordner.
 
 ## Unveröffentlicht – Testiteration 1
 

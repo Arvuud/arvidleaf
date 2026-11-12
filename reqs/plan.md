@@ -258,3 +258,78 @@ arvidleaf/
 
 Tests: 35 Unit-/Integrationstests grün, zusätzlich der 520-Seiten-Test (`--include-ignored`).
 Offen für REVIEW: Test im echten Fenster (Dialoge, Drag & Drop), `clippy` installieren und laufen lassen.
+
+---
+
+## 11. PLAN: Markdown-Dokumente mit LaTeX-Mathe (Entwurf 12.11.2026, nicht freigegeben)
+
+**Ziel:** `.md`-Dateien in arvidleaf schreiben und als PDF kompilieren, mit echter LaTeX-Mathe
+(`$…$`, `$$…$$`, `align`, eigene Makros, beliebige Pakete). Vorschau, Fehlerliste, SyncTeX,
+Historie und Auto-Compile funktionieren wie bei `.tex`.
+
+### 11.1 Ansatz
+Markdown → LaTeX → bestehende latexmk-Kette.
+
+- Neues Crate **`lf-md`**: Es liest Markdown mit `pulldown-cmark` (Rust, MIT, mit Mathe-Erweiterung
+  `ENABLE_MATH`) und schreibt `.arvidleaf/build/<name>.md.tex`. Die Quelldatei bleibt unverändert.
+- Mathe wird **wörtlich** an LaTeX weitergegeben. Was in LaTeX kompiliert, kompiliert auch in Markdown.
+- Rohes LaTeX im Markdown (z. B. `\newpage`, `\begin{figure}`) wird ebenfalls durchgereicht.
+  Das gilt auch für Blöcke in ```` ```latex ````.
+- **Kein pandoc:** Das wäre eine große zusätzliche Abhängigkeit, die hier nicht installiert ist.
+  Außerdem ließen sich Zeilen schlecht zurück auf die `.md` abbilden.
+
+### 11.2 Umfang (MVP)
+| Markdown | LaTeX |
+|---|---|
+| `#`–`######` | `\section` … `\subparagraph` (bzw. `\chapter` bei `class: report/book`) |
+| *kursiv*, **fett**, `code`, ~~durch~~ | `\emph`, `\textbf`, `\texttt` (escaped), `\sout` |
+| Listen, verschachtelt, Aufgabenlisten | `itemize`/`enumerate` (Startnummer), `☐/☑` |
+| Code-Blöcke mit Sprache | `listings` (Farben aus der Palette des PDF-Themes) |
+| Tabellen (GFM) mit Ausrichtung | `tabular` + `booktabs` |
+| Bilder `![Titel](pfad)` | `figure` + `\includegraphics` + `\caption` |
+| Links, Fußnoten, Zitate (`>`) | `\href`, `\footnote`, `quote` |
+| `[@knuth1984]` | `\cite{knuth1984}` (mit `bibliography:` im Front Matter) |
+| `$…$`, `$$…$$` | `\(…\)`, `\[…\]` bzw. wörtlich bei Umgebungen |
+
+**Front Matter** (YAML-Kopf, optional):
+```yaml
+---
+title: Mein Dokument
+author: arvid
+class: article          # article | report | scrartcl …
+lang: ngerman
+packages: [siunitx, tikz]
+preamble: |
+  \newcommand{\R}{\mathbb{R}}
+bibliography: refs.bib
+engine: pdflatex
+---
+```
+
+### 11.3 Integration
+- **Projekte:** Eine `.md` mit Front Matter oder als gewählte Hauptdatei kann Hauptdatei sein.
+  Gemischte Projekte (`.tex` bindet `\input{kapitel.md}` ein) kommen später.
+- **Fehler und SyncTeX:** Der Konverter schreibt eine Zeilentabelle (`.tex`-Zeile → `.md`-Zeile).
+  Fehler, Warnungen und Klicks im PDF zeigen auf die Markdown-Zeile.
+- **Editor:** Hervorhebung für Markdown (Überschriften, Hervorhebung, Listen, Links, Code). Innerhalb
+  von `$…$`/`$$…$$` gilt die LaTeX-Hervorhebung. Die Outline zeigt Überschriften, die Completion
+  arbeitet in Mathe-Bereichen.
+- **Templates:** Neue Vorlage „Markdown Note“ (Front Matter, Mathe-Beispiele).
+- **Escaping:** Text-Sonderzeichen (`# % & _ { } ~ ^ \`) werden außerhalb von Mathe und Raw-LaTeX
+  maskiert. Umlaute und Unicode laufen über `inputenc`/XeLaTeX wie bei `.tex`.
+
+### 11.4 Meilensteine
+| | Inhalt | Test |
+|---|---|---|
+| MD1 | `lf-md`: Konverter + Zeilentabelle, Front Matter | Golden-Tests (Markdown → erwartetes LaTeX), Escaping-Fälle |
+| MD2 | Kompilieren über latexmk, Fehler/Warnungen auf `.md`-Zeilen | `--compile` mit absichtlichen Fehlern in Mathe und Text |
+| MD3 | SyncTeX beide Richtungen über die Zeilentabelle | offscreen: Klick im PDF → richtige `.md`-Zeile |
+| MD4 | Editor: Hervorhebung, Outline, Completion in Mathe | Lexer-Tests |
+| MD5 | Vorlage, README, CHANGELOG | alle Vorlagen kompilieren |
+
+### 11.5 Offene Fragen an den Nutzer
+1. Soll die Hauptdatei eines Projekts eine `.md` sein dürfen, oder reicht zunächst „einzelne `.md` öffnen
+   und kompilieren“?
+2. Live-Vorschau gerenderter Formeln *im Editor* (z. B. beim Hovern über `$…$`): jetzt oder später?
+   (Mein Vorschlag: später. Das PDF zeigt die Formeln ohnehin nach ~1 s.)
+3. Export auch als `.tex` (Konverter-Ergebnis „herauslösen“, um in LaTeX weiterzuarbeiten)?

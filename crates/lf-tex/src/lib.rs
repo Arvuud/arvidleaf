@@ -3,6 +3,7 @@
 
 pub mod compile;
 pub mod complete;
+pub mod hints;
 pub mod lexer;
 pub mod log;
 pub mod outline;

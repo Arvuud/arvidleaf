@@ -219,7 +219,11 @@ pub fn run(job: &Job, cancel: &Cancel) -> Outcome {
     if pdf.exists() {
         out.pdf = Some(pdf);
     }
-    locate_missing(&job.root, &mut out.entries);
+    if out.entries.iter().any(|e| e.level == Level::Error) {
+        let sources = document_sources(&job.root, &job.main.to_string_lossy());
+        locate_missing(&sources, &mut out.entries);
+        crate::hints::add(&sources, &mut out.entries);
+    }
     for e in out.entries.iter_mut().filter(|e| e.file.is_none() && e.message.starts_with("Missing \\end{document}")) {
         let lines = std::fs::read_to_string(job.root.join(&job.main)).map(|s| s.lines().count()).unwrap_or(1);
         e.file = Some(job.main.to_string_lossy().to_string());
@@ -253,6 +257,15 @@ fn project_sources(root: &Path) -> Vec<(String, String)> {
         }
     }
     out
+}
+
+/// Sources of the document being compiled: the main file and files without
+/// their own `\documentclass` (other documents in the folder do not count).
+fn document_sources(root: &Path, main: &str) -> Vec<(String, String)> {
+    project_sources(root)
+        .into_iter()
+        .filter(|(f, src)| f == main || !src.lines().any(|l| crate::outline::strip_comment(l).contains("\\documentclass")))
+        .collect()
 }
 
 /// Line that loads `name` (`\usepackage{name}`, `\input{name}`, …).
@@ -291,20 +304,16 @@ fn find_runaway(sources: &[(String, String)], text: &str) -> Option<(String, u32
 /// TeX reports some errors without a line, or inside a system file
 /// (babel.sty, fontspec.sty). Point to the line in the project's sources:
 /// the `\usepackage` that loaded the file, or the start of a runaway argument.
-fn locate_missing(root: &Path, entries: &mut [LogEntry]) {
+fn locate_missing(sources: &[(String, String)], entries: &mut [LogEntry]) {
     let outside = |e: &LogEntry| e.line.is_none() || e.file.as_ref().is_some_and(|f| Path::new(f).is_absolute());
-    if !entries.iter().any(|e| e.level == Level::Error && outside(e)) {
-        return;
-    }
-    let sources = project_sources(root);
     for e in entries.iter_mut().filter(|e| e.level == Level::Error && outside(e)) {
         let found = if let Some(missing) = log::missing_files(std::slice::from_ref(e)).into_iter().next() {
-            find_load(&sources, &missing)
+            find_load(sources, &missing)
         } else if let Some(r) = e.context.lines().find_map(|l| l.strip_prefix("Runaway argument: ")) {
-            find_runaway(&sources, r)
+            find_runaway(sources, r)
         } else if let Some(sys) = e.file.clone().filter(|f| Path::new(f).is_absolute()) {
             let name = Path::new(&sys).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-            let hit = find_load(&sources, &name);
+            let hit = find_load(sources, &name);
             if hit.is_some() {
                 let at = e.line.map(|l| format!("{name}:{l}")).unwrap_or(name);
                 e.context = format!("(reported in {at})\n{}", e.context).trim_end().to_string();

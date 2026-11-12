@@ -26,6 +26,9 @@ pub struct EditorDoc {
     /// Changed on disk while there were unsaved edits.
     pub conflict: bool,
     cache: Option<(u64, f32, Arc<Galley>)>,
+    /// Line to scroll to once the text has been laid out (a freshly opened
+    /// file has no layout yet, and wrapped lines make `line * row height` wrong).
+    scroll_pending: Option<u32>,
     goto: Option<(u32, Option<(usize, usize)>)>,
     pub cursor_line: u32,
     pub cursor_col: u32,
@@ -86,6 +89,7 @@ impl EditorDoc {
             disk_mtime,
             conflict: false,
             cache: None,
+            scroll_pending: None,
             goto: None,
             cursor_line: 1,
             cursor_col: 1,
@@ -228,11 +232,19 @@ impl EditorDoc {
         let problems = &env.problems;
         let n_lines = self.text.split('\n').count().max(1);
         let mut scroll = egui::ScrollArea::vertical().id_salt(("editor_scroll", self.id)).auto_shrink([false, false]);
-        if let Some((line, _)) = self.goto {
-            // exact position from the last layout (lines may wrap)
+        if let Some(line) = self.goto.map(|g| g.0).or(self.scroll_pending) {
+            // exact position from the last layout (lines may wrap); without one,
+            // estimate now and correct in the next frame
             let y = match &self.cache {
-                Some((_, _, g)) => g.pos_from_cursor(CCursor::new(char_index_of_line(&self.text, line))).min.y,
-                None => (line as f32 - 1.0) * row_h,
+                Some((_, _, g)) => {
+                    self.scroll_pending = None;
+                    g.pos_from_cursor(CCursor::new(char_index_of_line(&self.text, line))).min.y
+                }
+                None => {
+                    self.scroll_pending = Some(line);
+                    ctx.request_repaint();
+                    (line as f32 - 1.0) * row_h
+                }
             };
             let visible = ui.available_height();
             scroll = scroll.vertical_scroll_offset((y - visible * 0.35).max(0.0));
