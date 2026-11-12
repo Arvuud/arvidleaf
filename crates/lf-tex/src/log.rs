@@ -177,6 +177,10 @@ fn is_followup(msg: &str) -> bool {
     msg.starts_with("Emergency stop") || msg.starts_with("==> Fatal error occurred")
 }
 
+fn is_missing_language(msg: &str) -> bool {
+    msg.contains("babel Error: Unknown option") || msg.contains("babel Error: You haven't loaded the language")
+}
+
 /// Parses a TeX log into entries (errors first in log order, then the rest).
 pub fn parse(log: &str) -> Vec<LogEntry> {
     let lines: Vec<&str> = log.lines().collect();
@@ -236,6 +240,14 @@ pub fn parse(log: &str) -> Vec<LogEntry> {
     if out.iter().any(|e| e.level == Level::Error && !is_followup(&e.message)) {
         out.retain(|e| e.level != Level::Error || !is_followup(&e.message));
     }
+    // a babel language that is not installed: everything after it is a consequence
+    if let Some(k) = out.iter().position(|e| e.level == Level::Error && is_missing_language(&e.message)) {
+        let mut n = 0;
+        out.retain(|e| {
+            n += 1;
+            e.level != Level::Error || n <= k + 1
+        });
+    }
     // TeX repeats some errors: keep the first
     let mut seen = std::collections::HashSet::new();
     out.retain(|e| seen.insert((e.level, e.file.clone(), e.line, e.message.clone())));
@@ -248,7 +260,7 @@ pub fn parse(log: &str) -> Vec<LogEntry> {
 pub fn missing_files(entries: &[LogEntry]) -> Vec<String> {
     let mut v = Vec::new();
     for e in entries.iter().filter(|e| e.level == Level::Error) {
-        if e.message.contains("babel Error: Unknown option") || e.message.contains("babel Error: You haven't loaded the language") {
+        if is_missing_language(&e.message) {
             let lang = e.message.split(['\'', '`']).nth(1).unwrap_or("").trim();
             if !lang.is_empty() && lang.chars().all(|c| c.is_ascii_alphanumeric()) {
                 let f = format!("{lang}.ldf");
@@ -270,6 +282,19 @@ pub fn missing_files(entries: &[LogEntry]) -> Vec<String> {
         }
     }
     v
+}
+
+/// True for files a TeX distribution provides (packages, classes, fonts …),
+/// false for project files such as images, chapters or bibliographies.
+pub fn is_distribution_file(f: &str) -> bool {
+    if f.contains('/') {
+        return false;
+    }
+    let ext = f.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    matches!(
+        ext.as_str(),
+        "sty" | "cls" | "ldf" | "clo" | "def" | "cfg" | "fd" | "bbx" | "cbx" | "lbx" | "bst" | "tfm" | "map" | "enc" | "pfb" | "otf" | "ttf" | "dict" | "ist" | "lua"
+    )
 }
 
 /// Page count from `Output written on main.pdf (12 pages, 3456 bytes).`
@@ -365,5 +390,16 @@ Output written on main.pdf (3 pages, 12345 bytes).
         assert_eq!(e.len(), 1, "{e:#?}");
         assert!(e[0].message.contains("missing `}`"), "{}", e[0].message);
         assert!(e[0].context.starts_with("Runaway argument: {unclosed"), "{}", e[0].context);
+    }
+
+    #[test]
+    fn missing_language_hides_followups_and_project_files_are_not_packages() {
+        let log = "(./main.tex\n./main.tex:5: Package babel Error: Unknown option 'ngerman'.\n(babel)                Suggested actions.\n\n./main.tex:16: Undefined control sequence.\nl.16 \\foo\n\n./main.tex:21: LaTeX Error: \\begin{document} ended by \\end{abstract}.\n)";
+        let e = parse(log);
+        let errs: Vec<_> = e.iter().filter(|e| e.level == Level::Error).collect();
+        assert_eq!(errs.len(), 1, "{e:#?}");
+        assert_eq!(missing_files(&e), vec!["ngerman.ldf".to_string()]);
+        assert!(is_distribution_file("ngerman.ldf") && is_distribution_file("foo.sty"));
+        assert!(!is_distribution_file("bilder/fehlt.png") && !is_distribution_file("eins.tex") && !is_distribution_file("kapitel/eins.tex"));
     }
 }

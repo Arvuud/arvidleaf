@@ -1,5 +1,13 @@
 # Changelog
 
+## Unveröffentlicht – Testiteration 2
+
+Behoben (Details: `reqs/review.md` Abschnitt 6):
+
+- Fehlende Bilder und `\input`-Dateien wurden als fehlendes TeX-Paket gemeldet.
+- Fehlt eine babel-Sprache, erscheint nur noch dieser Fehler statt sechs Folgefehlern.
+- Vorlage *cv* ohne Schriftwarnung; `.desktop` mit gültigen Kategorien.
+
 ## Unveröffentlicht – Testiteration 1
 
 Neu:

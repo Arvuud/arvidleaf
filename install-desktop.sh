@@ -14,7 +14,7 @@ Comment=Local LaTeX editor with PDF preview
 Exec=$root/target/release/arvidleaf %F
 Icon=arvidleaf
 Terminal=false
-Categories=Office;Development;Publishing;
+Categories=Office;Publishing;
 MimeType=text/x-tex;application/x-tex;
 StartupWMClass=arvidleaf
 DESKTOP

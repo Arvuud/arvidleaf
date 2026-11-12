@@ -225,7 +225,7 @@ pub fn run(job: &Job, cancel: &Cancel) -> Outcome {
         e.file = Some(job.main.to_string_lossy().to_string());
         e.line = Some(lines.max(1) as u32);
     }
-    out.missing = log::missing_files(&out.entries).into_iter().map(|f| MissingPackage { provider: provider_of(&f), file: f }).collect();
+    out.missing = log::missing_files(&out.entries).into_iter().filter(|f| log::is_distribution_file(f)).map(|f| MissingPackage { provider: provider_of(&f), file: f }).collect();
     out.ok = !out.cancelled && out.pdf.is_some() && out.errors() == 0;
     out
 }

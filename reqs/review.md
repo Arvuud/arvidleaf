@@ -103,3 +103,29 @@ Block-Cursor.
 
 Tests: 10 Unit-Tests (`vim::tests`, über 100 Tastenfolgen) und offscreen geprüft:
 `ggjjwwdiwifoo<Esc>`, `vi$`, `Gkdd:w<CR>` speichert, Menü-Schalter.
+
+## 6. Testiteration 2 (12.11.2026)
+
+Getestet: alle 9 Vorlagen (`--compile`), 7 neue Fehlerszenarien (fehlendes Bild, fehlendes
+`\input`, Umlaute in Ordner- und Dateinamen, falsches `\end`, unvollständige `align`-Formel,
+unbekanntes Paket, Emoji unter pdfLaTeX), Installer `install.sh --no-deps` (neuer Build und
+App-Menü-Eintrag), `desktop-file-validate`.
+
+| # | Schwere | Unerwartetes Verhalten | Fix | Absicherung |
+|---|---|---|---|---|
+| T10 | mittel | **Fehlende Projektdateien als TeX-Paket gemeldet:** Bei `\includegraphics{bilder/fehlt.png}` oder `\input{kapitel/eins}` erschien „Missing TeX file … Install the TeX Live package that contains it“. Das führt in die falsche Richtung: die Datei fehlt im Projekt. | Als fehlendes Paket gelten nur Dateien der TeX-Distribution (`.sty`, `.cls`, `.ldf`, Schriften …) ohne Pfad. Die normale Fehlermeldung mit Zeile bleibt. | Test `missing_language_hides_followups_and_project_files_are_not_packages` |
+| T11 | mittel | **Fehlende babel-Sprache: 7 Fehler statt 1.** Ohne `texlive-langgerman` meldete die deutsche Vorlage zusätzlich „Undefined control sequence“, „\begin{document} ended by \end{abstract}“ usw. | Nach „babel Error: Unknown option“ werden weitere Fehler ausgeblendet (alle sind Folgen). Der Installationshinweis bleibt. | gleicher Test; Vorlage `article-de` ohne Sprachpaket |
+| T12 | niedrig | Vorlage **cv**: Schriftwarnung „Font shape T1/cmr/m/n in size <34> not available“. | `\usepackage{lmodern}` in der Vorlage. | `--compile`: 0 Warnungen |
+| T13 | niedrig | `.desktop`: `desktop-file-validate` meldet mehrere Hauptkategorien (Eintrag kann doppelt im Menü erscheinen). | `Categories=Office;Publishing;` | `desktop-file-validate` ohne Hinweis |
+
+**Ohne Befund:** übrige Vorlagen; Umlaute in Pfaden; `\begin{itemize}…\end{enumerate}`
+(Zeile 5, Meldung nennt Zeile 3); unbekanntes Paket (Zeile der `\usepackage`); Emoji
+(verständliche Unicode-Meldung).
+
+**Bekannt, nicht geändert:**
+- Vorlage *presentation* (metropolis) warnt unter pdfLaTeX, dass Fira-Schriften XeLaTeX/LuaLaTeX
+  brauchen. Fira ist hier nicht installiert, ein Wechsel der Engine brächte nichts. Dazu kommt
+  eine harmlose Overfull-\vbox-Meldung der Titelseite.
+- Bei `\frac{1}{2` in `align` zeigt der Fehler auf den Anfang der Umgebung (Zeile 6), nicht auf
+  Zeile 7. TeX liest die ganze Umgebung als Argument, genauer geht es aus dem Log nicht.
+- Auf diesem Rechner fehlt `texlive-langgerman` (`sudo pacman -S texlive-langgerman`).
