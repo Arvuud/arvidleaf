@@ -333,3 +333,77 @@ engine: pdflatex
 2. Live-Vorschau gerenderter Formeln *im Editor* (z. B. beim Hovern über `$…$`): jetzt oder später?
    (Mein Vorschlag: später. Das PDF zeigt die Formeln ohnehin nach ~1 s.)
 3. Export auch als `.tex` (Konverter-Ergebnis „herauslösen“, um in LaTeX weiterzuarbeiten)?
+
+---
+
+## 12. Editor-Kürzel (Wunsch 19.11.2026, umgesetzt)
+
+Wunsch: `\begin{enumerate}` importiert direkt `enumitem`; `$` auf einer Auswahl setzt sie in den
+Mathe-Modus; Vorschläge richten sich nach den bisherigen Eingaben und erscheinen schneller.
+
+Entscheidungen:
+- **Pakete automatisch:** Tabelle Umgebung/Befehl → Paket in `lf-tex/src/packages.rs`. Ausgelöst
+  beim Einfügen über die Completion und bei Enter nach `\begin{…}` (nicht bei jedem Tastendruck).
+  Geprüft werden alle `.tex`/`.sty` des Projekts inkl. indirekt geladener Pakete; `enumitem`,
+  `geometry`, `hyperref` nie bei `beamer`. Ziel: Datei mit `\documentclass`, sonst Hauptdatei,
+  sonst eine Präambel-Datei mit `\usepackage`. Offene Datei → Puffer, sonst direkt auf die Platte.
+- **Auswahl umschließen:** `$` → `$…$`, `{`/`[` immer bei Auswahl, Strg+B/Strg+I → `\textbf`/`\textit`.
+- **Vorschläge:** ab 1 Buchstabe; Rang = 3 × frühere Auswahl (`~/.config/arvidleaf/usage.json`,
+  max. 2000 Einträge) + Häufigkeit in der Datei; eigene Befehle/Umgebungen der Datei kommen dazu.
+  Popup ohne Fade-in. Ist der Präfix schon ein vollständiger Befehl, nur Verlängerungen zeigen
+  (Enter bleibt Zeilenumbruch).
+- **Tests:** Unit-Tests in `packages.rs`, `complete.rs`, `usage.rs`, Editor-Tests mit echten
+  egui-Eingaben (`editor.rs`), offscreen-Durchlauf im Testordner `shortcuts/`.
+
+---
+
+## 13. Weitere Editor-Kürzel und Kürzel-Übersicht (Wunsch 19.11.2026, umgesetzt)
+
+Wunsch: alle Vorschläge aus der Besprechung umsetzen, dazu eine Übersicht aller Kürzel.
+
+Entscheidungen:
+- **Auto-Pairing:** `(`, `[`, `{`, `$` erzeugen ein Paar, außer direkt danach steht ein Buchstabe,
+  eine Ziffer oder `\`. `$` nur außerhalb von Mathe (gerade Anzahl unmaskierter `$` im Absatz
+  davor), sonst schließt es. `\{` und `\$` bleiben einzeln. `\(` → `\(\)`, `\[` → `\[\]`,
+  `\left(` / `\left[` / `\left\{` / `\left|` → passendes `\right…`. Auswahl + `(` umschließt.
+- **Überschreiben/Backspace:** Selbst eingefügte Schließer werden als Stapel gemerkt; das gleiche
+  Zeichen tippen springt darüber, Backspace auf einem leeren Paar löscht beide Teile.
+- **Formatieren:** Strg+E `\emph{…}`, Strg+M `\(…\)`, Strg+Umschalt+M `\[…\]`.
+- **Umgebung:** Strg+Umschalt+E setzt die Zeilen der Auswahl (eingerückt) in `\begin{}…\end{}`,
+  Cursor im Namen. Wird der Name in `\begin{…}` geändert, folgt das passende `\end{…}`
+  (verschachtelungssicher; nur wenn sich ausschließlich der Name geändert hat).
+- **Listen:** Enter in einer `\item`-Zeile innerhalb `itemize`/`enumerate`/`description` beginnt
+  `\item `; Enter auf einem leeren `\item` entfernt es und setzt den Cursor hinter `\end{…}`.
+  Umschalt+Enter = normaler Zeilenumbruch. Neue Listen starten mit `\item `.
+- **Zeilen:** Strg+D dupliziert, Alt+↑/↓ verschiebt, Strg+L markiert Zeile(n) (wiederholt: erweitern).
+  Tab / Umschalt+Tab rücken mehrzeilige Auswahl um 2 Leerzeichen ein/aus (Umschalt+Tab auch ohne
+  Auswahl für die aktuelle Zeile).
+- **Tab-Stopps:** Nach einer Vorlage mit mehreren Argumenten (`\frac{}{}`, `\href{}{}`, Umgebungen
+  mit Argumenten wie `tabular`, `minipage`) springt Tab zum nächsten Argument und zuletzt hinter
+  das Ganze.
+- **Strg+Klick:** auf `\ref`-artige Befehle → `\label`, auf `\input`/`\include`/`\includegraphics`
+  → Datei, auf `\cite` → Eintrag in der `.bib`. Bei gedrückter Strg-Taste Hand-Cursor über Links.
+- **Übersicht:** Eine Tabelle (`lf-gui/src/shortcuts.rs`) ist die einzige Quelle; Dialog mit
+  Suchfeld und Gruppen über F1, Strg+? und Help/Edit-Menü. Vim-Modus: die Editier-Kürzel gelten
+  nur im Insert-Modus.
+- **Tests:** Editor-Tests mit echten egui-Eingaben je Kürzel, offscreen-Screenshot der Übersicht,
+  Testprojekt `shortcuts/` im Testordner.
+
+---
+
+## 14. Installation auf Linux, Windows, macOS; Datei-Kompilierung per CLI (Wunsch 19.11.2026, umgesetzt)
+
+- **Linux:** `install.sh` mit `--update`, `--system`, `--dev`, zypper; Rust ≥ 1.95 per rustup.
+  Ein gemeinsamer Generator `packaging/desktop-entry.sh` liefert den Starter für Paket und Dev-Build.
+- **Windows:** `install.ps1` (PowerShell 5.1, ASCII). winget installiert MiKTeX (mit AutoInstall
+  fehlender Pakete), Strawberry Perl (für latexmk), Poppler (bin-Ordner wird bei Bedarf in den PATH
+  eingetragen), rustup und die VS C++ Build Tools. Installiert wird pro Nutzer ohne Admin:
+  Startmenü, .ico aus dem PNG, „Öffnen mit“, Deinstallation über *Installierte Apps*.
+- **macOS:** `install-macos.sh` mit Homebrew (MacTeX ohne GUI-Apps oder BasicTeX + tlmgr), baut
+  `arvidleaf.app` (Info.plist, icns via sips/iconutil, Ad-hoc-Signatur), dazu einen Symlink nach
+  `~/.local/bin`.
+- **Code:** systemübliche Pfade, `.exe`-Suche, `open`/`explorer`, `taskkill`, CREATE_NO_WINDOW,
+  `windows_subsystem` mit AttachConsole für CLI-Modi, PATH-Ergänzung unter macOS.
+  Geprüft per `cargo check --target x86_64-pc-windows-gnu` und `aarch64-apple-darwin`.
+- **CLI:** `--compile <datei.md|datei.tex>`, PDF daneben oder per `-o`.
+- **Offen:** Test auf echten Windows- und macOS-Rechnern.

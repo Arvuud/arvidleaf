@@ -2,10 +2,31 @@
 
 use std::path::PathBuf;
 
-/// Looks up an executable in `PATH`.
+/// Looks up an executable in `PATH` (on Windows also `name.exe`).
 pub fn find(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).map(|d| d.join(name)).find(|p| p.is_file())
+    let names: &[String] = if cfg!(windows) { &[format!("{name}.exe"), format!("{name}.bat"), name.to_string()] } else { &[] };
+    std::env::split_paths(&path).find_map(|d| {
+        if names.is_empty() {
+            Some(d.join(name)).filter(|p| p.is_file())
+        } else {
+            names.iter().map(|n| d.join(n)).find(|p| p.is_file())
+        }
+    })
+}
+
+/// A command for an external tool. On Windows it runs without flashing a
+/// console window.
+pub fn command(program: &str) -> std::process::Command {
+    #[allow(unused_mut)]
+    let mut c = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        c.creation_flags(CREATE_NO_WINDOW);
+    }
+    c
 }
 
 pub struct Tool {
@@ -34,7 +55,7 @@ pub fn check() -> Vec<Tool> {
 
 /// Whether TeX can find a file (`kpsewhich`), e.g. `ngerman.ldf`.
 pub fn kpsewhich(file: &str) -> Option<PathBuf> {
-    let o = std::process::Command::new("kpsewhich").arg(file).output().ok()?;
+    let o = command("kpsewhich").arg(file).output().ok()?;
     let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
     if s.is_empty() { None } else { Some(PathBuf::from(s)) }
 }

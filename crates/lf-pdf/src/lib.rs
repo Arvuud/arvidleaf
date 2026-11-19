@@ -20,7 +20,7 @@ pub struct PdfInfo {
 /// Reads page count and sizes with `pdfinfo`.
 pub fn info(path: &Path) -> Result<PdfInfo, String> {
     let run = |args: &[&str]| -> Result<String, String> {
-        let o = Command::new("pdfinfo").args(args).arg(path).stderr(Stdio::piped()).output().map_err(|e| format!("pdfinfo: {e}"))?;
+        let o = tool("pdfinfo").args(args).arg(path).stderr(Stdio::piped()).output().map_err(|e| format!("pdfinfo: {e}"))?;
         if !o.status.success() {
             return Err(String::from_utf8_lossy(&o.stderr).trim().to_string());
         }
@@ -111,9 +111,21 @@ pub fn parse_ppm(data: &[u8]) -> Result<Image, String> {
     Ok(Image { width: w, height: h, rgb: data[i..i + need].to_vec() })
 }
 
+/// A poppler command; on Windows without a console window.
+fn tool(program: &str) -> Command {
+    #[allow(unused_mut)]
+    let mut c = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    c
+}
+
 /// Renders one page (1-based) at `dpi`.
 pub fn render_page(path: &Path, page: u32, dpi: f32) -> Result<Image, String> {
-    let o = Command::new("pdftoppm")
+    let o = tool("pdftoppm")
         .args(["-f", &page.to_string(), "-l", &page.to_string(), "-r", &format!("{dpi:.1}"), "-singlefile"])
         .arg(path)
         .stderr(Stdio::piped())

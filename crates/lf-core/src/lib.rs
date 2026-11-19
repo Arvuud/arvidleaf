@@ -6,6 +6,7 @@ pub mod history;
 pub mod paths;
 pub mod project;
 pub mod templates;
+pub mod usage;
 
 use std::io;
 use std::path::Path;

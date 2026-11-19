@@ -22,25 +22,66 @@ Version 0.1.0 – Prototyp. Änderungen: `CHANGELOG.md`. Plan und Anforderungen:
 
 ## Installieren und starten
 
+Jedes Skript installiert die Werkzeuge (TeX, latexmk, biber, poppler, Rust ≥ 1.95), baut die
+Release-Version und legt Programm, Icon und Starter an. `--update` baut nur neu und erneuert den
+Starter, z. B. nach `git pull`.
+
+**Linux** (pacman, apt, dnf, zypper): Programm in `~/.local`, Eintrag im App-Menü
+
 ```sh
-./install.sh             # Abhängigkeiten (sudo), Build, Programm + Icon + App-Menü-Eintrag
-./install.sh --no-deps   # ohne Systempakete
+./install.sh              # alles (sudo nur für die Systempakete)
+./install.sh --update     # neu bauen und installieren, Starter erneuern
+./install.sh --system     # für alle Nutzer nach /usr/local
+./install.sh --dev        # App-Menü startet den Build dieses Quellordners
 ./install.sh --uninstall
 ```
 
-Danach startet arvidleaf aus dem App-Menü oder mit `arvidleaf`. Direkt aus dem Quellbaum:
+**Windows 10/11** (winget: MiKTeX, Strawberry Perl, Poppler, rustup, VS C++ Build Tools):
+Programm in `%LOCALAPPDATA%\Programs\arvidleaf`, Startmenü, „Öffnen mit“ für `.tex/.bib/.md`,
+Eintrag unter *Installierte Apps*
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1            # alles
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Update    # neu bauen
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -DesktopShortcut
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
+```
+
+**macOS 12+** (Homebrew: MacTeX ohne GUI-Apps oder mit `--small-tex` BasicTeX, poppler; rustup):
+`arvidleaf.app` in `~/Applications`, Befehl `arvidleaf` in `~/.local/bin`
+
+```sh
+./install-macos.sh            # alles
+./install-macos.sh --update   # neu bauen
+./install-macos.sh --system   # nach /Applications
+./install-macos.sh --uninstall
+```
+
+Die Windows- und macOS-Skripte sind bisher nur gegen den Code geprüft (Cross-Check des
+Builds), nicht auf echten Geräten gelaufen.
+
+Direkt aus dem Quellbaum:
 
 ```sh
 cargo build --release
 ./target/release/arvidleaf                 # Startseite
 ./target/release/arvidleaf ~/Docs/paper    # Projektordner öffnen
 ./target/release/arvidleaf paper.zip       # ZIP importieren (z. B. Overleaf-Download)
-./target/release/arvidleaf --compile dir   # ohne GUI kompilieren, Probleme ausgeben
 ./target/release/arvidleaf --screenshot out.png [--size 1440x900] [--light] [--key 5:Ctrl+H] [dir]
 ```
 
-Für die Entwicklung trägt `./install-desktop.sh` den Build ins App-Menü ein.
-Ein installierbares Paket baut `packaging/build-package.sh`
+### Ohne Oberfläche kompilieren
+
+```sh
+arvidleaf --compile notizen.md              # → notizen.pdf daneben
+arvidleaf --compile kapitel.tex -o out.pdf  # PDF an anderen Ort
+arvidleaf --compile ~/Docs/paper            # ganzes Projekt (Hauptdatei automatisch)
+```
+
+Fehler und Warnungen kommen mit Datei und Zeile auf die Konsole. Exit-Code 0 bedeutet: PDF ohne Fehler.
+Build-Dateien liegen in `.arvidleaf/` neben der Quelle.
+
+Ein installierbares Linux-Paket baut `packaging/build-package.sh`
 (`dist/arvidleaf-<version>-linux-<arch>.tar.gz`, darin `install.sh`).
 
 ## Funktionen
@@ -88,16 +129,47 @@ eingebettet) lassen sich ausblenden oder als eigene Kopie bearbeiten.
 
 ## Tastenkürzel
 
+Alle Kürzel zeigt die App unter **F1** (oder Strg+?, Help → Keyboard Shortcuts) mit Suchfeld.
+Die Tabelle dafür steht in `crates/lf-gui/src/shortcuts.rs`.
+
 | Taste | Aktion |
 |---|---|
+| F1, Strg+? | Übersicht aller Kürzel |
 | Strg+S | alles speichern und kompilieren |
 | Strg+Enter / Strg+. | kompilieren / abbrechen |
 | Strg+J, Doppelklick im PDF | SyncTeX vorwärts / rückwärts |
 | Strg+F, Strg+Umschalt+F | suchen in Datei / im Projekt |
 | Strg+P | Datei öffnen |
+| Strg+Klick | `\ref` → `\label`, `\cite` → `.bib`-Eintrag, `\input`/`\includegraphics` → Datei |
 | Strg+/ | Kommentar umschalten |
+| Strg+B / Strg+I / Strg+E | `\textbf{…}` / `\textit{…}` / `\emph{…}` (ohne Auswahl: leeres Paar) |
+| Strg+M / Strg+Umschalt+M | `\(…\)` / `\[…\]` |
+| Strg+Umschalt+E | Zeilen in `\begin{}…\end{}` setzen, Cursor im Namen |
+| `(` `[` `{` `$` | erzeugen ein Paar (nicht direkt vor einem Wort; `$` nicht innerhalb von Mathe); das Schließzeichen tippen springt darüber, Backspace löscht ein leeres Paar |
+| `\(` `\[` `\left(` | fügen `\)` `\]` `\right)` dazu |
+| `$` `(` `[` `{` bei Auswahl | Auswahl umschließen: `x+y` → `$x+y$` |
+| Name in `\begin{…}` ändern | das passende `\end{…}` ändert sich mit |
+| Enter in einer Liste | neues `\item`; auf leerem `\item`: Liste beenden (Umschalt+Enter: normaler Umbruch) |
+| Tab nach einer Vorlage | ins nächste Argument (`\frac{…}{…}`, `tabular`-Spalten), zuletzt dahinter |
+| Strg+D, Alt+↑/↓, Strg+L | Zeile duplizieren / verschieben / markieren |
+| Tab / Umschalt+Tab | markierte Zeilen ein- / ausrücken |
 | Strg+H | Historie |
 | Strg+Umschalt+N, Strg+O | neues Projekt / Ordner öffnen |
+
+Im Vim-Modus gelten die Editier-Kürzel im Insert-Modus.
+
+### Automatische Pakete und Vorschläge
+
+- Wer eine Umgebung oder einen Befehl einfügt, der ein Paket braucht, bekommt das `\usepackage`
+  automatisch in die Präambel – z. B. `\begin{enumerate}` → `enumitem`, `align` → `amsmath`,
+  `\toprule` → `booktabs`, `\includegraphics` → `graphicx`. Die Zeile kommt hinter das letzte
+  `\usepackage` der Hauptdatei (oder der Datei mit `\documentclass`), auch wenn gerade ein
+  Kapitel per `\input` bearbeitet wird. Bereits geladene Pakete (auch indirekt, z. B. `amsmath`
+  durch `mathtools`, oder durch `beamer`) werden nicht doppelt eingetragen.
+- Vorschläge erscheinen ab dem ersten Buchstaben nach `\`. Oben stehen Befehle und Umgebungen,
+  die in der Datei schon vorkommen (auch eigene wie `\vect`), und solche, die man früher oft
+  gewählt hat (`~/.config/arvidleaf/usage.json`). Ist der getippte Befehl schon vollständig
+  (`\int`), bleibt Enter ein Zeilenumbruch.
 
 ### Vim-Modus
 

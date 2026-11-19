@@ -219,8 +219,9 @@ fn walk(root: &Path, file: &Path, read: &dyn Fn(&Path) -> Option<String>, out: &
     }
     visited.push(file.to_path_buf());
     let Some(src) = read(file) else { return };
-    let hs = headings(&src);
-    let inc = includes(&src);
+    let md = crate::compile::is_markdown(file);
+    let hs = if md { lf_md::headings(&src) } else { headings(&src) };
+    let inc = if md { Vec::new() } else { includes(&src) };
     // merge headings and includes by line
     let (mut a, mut b) = (0, 0);
     while a < hs.len() || b < inc.len() {

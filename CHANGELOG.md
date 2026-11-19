@@ -1,5 +1,46 @@
 # Changelog
 
+## Unveröffentlicht – Installation auf Linux, Windows und macOS
+
+- `install.sh` überarbeitet: `--update`, `--system`, `--dev` (ersetzt `install-desktop.sh`), zypper,
+  Rust ≥ 1.95 über rustup, falls die Distribution ein älteres hat, Hinweis bei laufender App.
+- Starter (`.desktop`) aus einer gemeinsamen Vorlage (`packaging/desktop-entry.sh`): GenericName,
+  Suchwörter, `.bib`/`.md`, StartupNotify.
+- Neu: `install.ps1` (Windows, winget) und `install-macos.sh` (macOS, Homebrew, `arvidleaf.app`).
+- Portabilität: Pfade nach Systemkonvention (`%APPDATA%`, `~/Library`), `.exe`-Suche, Öffnen mit
+  `open`/`explorer`, Abbrechen per `taskkill`, keine Konsolenfenster unter Windows, TeX-Pfade
+  für aus dem Finder gestartete Apps.
+- `arvidleaf --compile datei.md` (oder `.tex`) kompiliert eine einzelne Datei; das PDF landet
+  daneben oder mit `-o` an einem anderen Ort.
+
+## Unveröffentlicht – Editor-Kürzel
+
+Neu (Teil 2):
+
+- Übersicht aller Tastenkürzel mit Suchfeld: F1, Strg+?, Help/Edit-Menü.
+- `(`, `[`, `{`, `$` schließen automatisch; Schließzeichen überspringen, Backspace löscht leere Paare.
+  `\(`, `\[`, `\left(` bekommen ihr Gegenstück.
+- Strg+E `\emph`, Strg+M `\(…\)`, Strg+Umschalt+M `\[…\]`, Strg+Umschalt+E Umgebung um die Zeilen.
+- `\end{…}` folgt dem geänderten Namen in `\begin{…}`.
+- Listen: Enter setzt `\item`, Enter auf leerem `\item` beendet die Liste.
+- Zeilen: Strg+D duplizieren, Alt+↑/↓ verschieben, Strg+L markieren, Tab/Umschalt+Tab einrücken.
+- Tab-Stopps in Vorlagen (`\frac{}{}`, `tabular`-Spaltenangabe).
+- Strg+Klick auf `\ref`, `\cite`, `\input`, `\includegraphics` öffnet Ziel.
+
+Neu:
+
+- `\begin{enumerate}` trägt `\usepackage{enumitem}` in die Präambel ein; ebenso weitere Pakete
+  für Umgebungen und Befehle (`amsmath`, `booktabs`, `graphicx`, `tikz`, …), nur wenn sie fehlen.
+- `$` auf einer Auswahl setzt sie in Mathe-Modus, statt sie zu ersetzen.
+- Strg+B / Strg+I für `\textbf{…}` / `\textit{…}`.
+- Vorschläge ab dem ersten Buchstaben, ohne Einblend-Animation, sortiert nach den Befehlen der
+  Datei und nach früheren Auswahlen. Eigene Befehle (`\newcommand`) und Umgebungen werden vorgeschlagen.
+
+Behoben:
+
+- Enter nach einem vollständigen Befehl wie `\int` fügte `\iint` ein statt einer neuen Zeile.
+- `{`/`[` auf einer Auswahl umschlossen sie nur, wenn danach ein Leerzeichen stand.
+
 ## Unveröffentlicht – Testiteration 2
 
 Behoben (Details: `reqs/review.md` Abschnitt 6):

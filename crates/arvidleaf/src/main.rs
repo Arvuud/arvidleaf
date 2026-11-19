@@ -1,4 +1,6 @@
 //! arvidleaf entry point: desktop GUI, headless compile, or a screenshot of the UI.
+// Windows: no console window behind the GUI (command-line modes attach to the caller's console)
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 use std::path::PathBuf;
 
@@ -6,7 +8,9 @@ fn usage() {
     eprintln!(
         "Usage: arvidleaf [options] [folder | file.tex | archive.zip]\n\
          \n  (no options)            open the desktop app (with a project, file or ZIP)\
-         \n  --compile <folder>      compile a project without GUI, print problems, exit\
+         \n  --compile <folder|file> compile without GUI (a project folder, or one .tex/.md file:\
+         \n                          its PDF is written next to it), print problems, exit\
+         \n    -o, --output out.pdf  write the PDF there instead\
          \n  --screenshot out.png    render the UI offscreen [--size WxH] [--frames N] [--light]\
          \n                          [--click F:X,Y] [--dclick F:X,Y] [--drag F:X0,Y0,X1,Y1]\
          \n                          [--type F:text] [--key F:Ctrl+Enter]\
@@ -15,14 +19,28 @@ fn usage() {
 }
 
 /// Headless compile: exit code 0 = PDF without errors.
-fn compile(dir: &str) -> i32 {
-    let p = match lf_core::project::Project::open(std::path::Path::new(dir)) {
+/// `target` is a project folder or a single `.tex`/`.md` file (its folder is
+/// the project, the file the main file). A file's PDF lands next to it,
+/// unless `out` names another path.
+fn compile(target: &str, out_pdf: Option<&str>) -> i32 {
+    let path = std::path::Path::new(target);
+    let (dir, main) = if path.is_file() {
+        let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."));
+        (dir, path.file_name().map(|f| f.to_string_lossy().to_string()))
+    } else {
+        (path, None)
+    };
+    let mut p = match lf_core::project::Project::open(dir) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("{dir}: {e}");
+            eprintln!("{target}: {e}");
             return 2;
         }
     };
+    if main.is_some() {
+        p.meta.main = main;
+    }
+    let dir = target;
     let Some(job) = p.compile_job() else {
         eprintln!("{dir}: no main file (no .tex with \\documentclass)");
         return 2;
@@ -52,6 +70,17 @@ fn compile(dir: &str) -> i32 {
         out.warnings(),
         out.pdf.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "no PDF".into())
     );
+    // a single file: the PDF goes next to it (or to -o)
+    let dest = out_pdf.map(std::path::PathBuf::from).or_else(|| path.is_file().then(|| path.with_extension("pdf")));
+    if let (Some(dest), Some(pdf)) = (dest, &out.pdf) {
+        match std::fs::copy(pdf, &dest) {
+            Ok(_) => println!("PDF: {}", dest.display()),
+            Err(e) => {
+                eprintln!("could not write {}: {e}", dest.display());
+                return 2;
+            }
+        }
+    }
     if out.ok { 0 } else { 1 }
 }
 
@@ -127,8 +156,43 @@ fn screenshot(args: &[String]) -> i32 {
     }
 }
 
+#[cfg(windows)]
+fn attach_console() {
+    unsafe extern "system" {
+        fn AttachConsole(pid: u32) -> i32;
+    }
+    const ATTACH_PARENT_PROCESS: u32 = u32::MAX;
+    // SAFETY: plain Win32 call without pointers
+    unsafe {
+        AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+}
+
+/// Apps started from Finder get a minimal PATH without TeX and Homebrew.
+#[cfg(target_os = "macos")]
+fn extend_path() {
+    let extra = ["/Library/TeX/texbin", "/opt/homebrew/bin", "/usr/local/bin"];
+    let cur = std::env::var_os("PATH").unwrap_or_default();
+    let mut dirs: Vec<PathBuf> = std::env::split_paths(&cur).collect();
+    for d in extra.iter().rev().map(PathBuf::from) {
+        if d.is_dir() && !dirs.contains(&d) {
+            dirs.insert(0, d);
+        }
+    }
+    if let Ok(p) = std::env::join_paths(dirs) {
+        // SAFETY: called first thing in main, before any other thread exists
+        unsafe { std::env::set_var("PATH", p) };
+    }
+}
+
 fn main() {
+    #[cfg(target_os = "macos")]
+    extend_path();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    #[cfg(windows)]
+    if args.iter().any(|a| a.starts_with("--") || a == "-h") {
+        attach_console();
+    }
     if args.iter().any(|a| a == "--version") {
         println!("arvidleaf {}", env!("CARGO_PKG_VERSION"));
         return;
@@ -138,7 +202,8 @@ fn main() {
         return;
     }
     if let Some(i) = args.iter().position(|a| a == "--compile") {
-        std::process::exit(compile(args.get(i + 1).map(String::as_str).unwrap_or(".")));
+        let out = args.iter().position(|a| a == "-o" || a == "--output").and_then(|k| args.get(k + 1)).map(String::as_str);
+        std::process::exit(compile(args.get(i + 1).map(String::as_str).unwrap_or("."), out));
     }
     if args.iter().any(|a| a == "--screenshot") {
         std::process::exit(screenshot(&args));

@@ -202,7 +202,27 @@ pub fn rename(root: &Path, from: &Path, to: &Path) -> io::Result<()> {
     std::fs::rename(root.join(from), dst)
 }
 
+/// Moves a file or folder to the trash: `~/.Trash` on macOS, arvidleaf's own
+/// `trash` folder on Windows (the Recycle Bin needs the shell API).
+#[cfg(any(windows, target_os = "macos"))]
+pub fn trash(path: &Path) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    let dir = crate::paths::home_dir().join(".Trash");
+    #[cfg(windows)]
+    let dir = crate::paths::data_dir().join("trash");
+    std::fs::create_dir_all(&dir)?;
+    let name = path.file_name().ok_or_else(|| io::Error::other("no file name"))?.to_string_lossy().to_string();
+    let mut target = dir.join(&name);
+    let mut i = 1;
+    while target.exists() {
+        i += 1;
+        target = dir.join(format!("{name}.{i}"));
+    }
+    std::fs::rename(path, target)
+}
+
 /// Moves a file or folder to the freedesktop trash (`~/.local/share/Trash`).
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn trash(path: &Path) -> io::Result<()> {
     let base = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| crate::paths::home_dir().join(".local/share")).join("Trash");
     let files = base.join("files");

@@ -14,7 +14,7 @@ use lf_tex::compile::{Cancel, Outcome};
 use lf_tex::log::{Level, LogEntry};
 use lf_tex::outline::Heading;
 
-use crate::editor::{EditorAction, EditorDoc, EditorEnv};
+use crate::editor::{EditorAction, EditorDoc, EditorEnv, Link};
 use crate::history_ui::{HistoryAction, HistoryView};
 use crate::pdfview::{PdfAction, PdfView};
 use crate::templates_ui::{Gallery, GalleryResult, Manager, ManagerResult, Previews};
@@ -66,7 +66,7 @@ enum Dialog {
     SaveTemplate { name: String, category: String, description: String, error: Option<String> },
     QuickOpen { query: String, selected: usize },
     Search { query: String, results: Vec<(PathBuf, u32, String)>, searched: bool },
-    Shortcuts,
+    Shortcuts { query: String },
     SystemCheck,
     About,
 }
@@ -111,11 +111,19 @@ pub struct App {
     next_id: u64,
     ctx: egui::Context,
     title: String,
+    /// Completion picks across sessions (ranks suggestions).
+    usage: lf_core::usage::Usage,
 }
 
 /// Opens a file or folder with the desktop's default application.
 pub fn open_external(path: &Path) {
-    let _ = std::process::Command::new("xdg-open").arg(path).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+    #[cfg(target_os = "macos")]
+    let mut c = std::process::Command::new("open");
+    #[cfg(windows)]
+    let mut c = std::process::Command::new("explorer");
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let mut c = std::process::Command::new("xdg-open");
+    let _ = c.arg(path).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
 }
 
 fn file_icon(name: &str) -> &'static str {
@@ -155,6 +163,7 @@ impl App {
             next_id: 1,
             ctx: ctx.clone(),
             title: String::new(),
+            usage: lf_core::usage::Usage::load(),
         };
         let missing: Vec<&str> = app.tools.iter().filter(|t| t.required && !t.found).map(|t| t.name).collect();
         if !missing.is_empty() {
@@ -360,7 +369,90 @@ impl App {
                     }
                 }
         }
+        let _ = self.usage.save();
         n
+    }
+
+    /// Takes over what the editor collected this frame: completion picks and
+    /// packages the text now needs.
+    fn after_editor(&mut self) {
+        let Some(ws) = &mut self.ws else { return };
+        let Some(Doc::Text(d)) = ws.active.and_then(|a| ws.docs.get_mut(a)) else { return };
+        let picked = std::mem::take(&mut d.picked);
+        let packages = std::mem::take(&mut d.needs_packages);
+        for k in picked {
+            self.usage.record(&k);
+        }
+        for p in packages {
+            self.ensure_package(&p);
+        }
+    }
+
+    /// Adds `\usepackage{pkg}` to the preamble unless a file of the project
+    /// already loads it (or the class does). Works on the open buffer if the
+    /// target file is open, otherwise on disk.
+    fn ensure_package(&mut self, pkg: &str) {
+        let ctx = self.ctx.clone();
+        let Some(ws) = &mut self.ws else { return };
+        let Some(active) = ws.active.and_then(|a| ws.docs.get(a)).map(|d| d.rel().to_path_buf()) else { return };
+        let is_tex = |p: &Path| p.extension().is_some_and(|e| e == "tex" || e == "sty");
+        if !is_tex(&active) {
+            return;
+        }
+        let mut paths: Vec<PathBuf> = ws.files.iter().filter(|f| is_tex(f)).cloned().collect();
+        if !paths.contains(&active) {
+            paths.push(active.clone());
+        }
+        let texts: Vec<(PathBuf, String)> = paths
+            .into_iter()
+            .filter_map(|p| {
+                let open = ws.docs.iter().find_map(|d| match d {
+                    Doc::Text(t) if t.rel == p => Some(t.text.clone()),
+                    _ => None,
+                });
+                let text = open.or_else(|| std::fs::read_to_string(ws.project.root.join(&p)).ok())?;
+                Some((p, text))
+            })
+            .collect();
+        let sources: Vec<&str> = texts.iter().map(|t| t.1.as_str()).collect();
+        if !lf_tex::packages::needed(&sources, pkg) {
+            return;
+        }
+        // the file with \documentclass being edited, the main file, then a
+        // separate preamble file with \usepackage lines
+        let main = ws.project.meta.main.clone().map(PathBuf::from);
+        let text_of = |p: &Path| texts.iter().find(|t| t.0 == p).map(|t| t.1.as_str());
+        let mut order: Vec<&Path> = Vec::new();
+        if text_of(&active).is_some_and(|t| t.contains("\\documentclass")) {
+            order.push(&active);
+        }
+        order.extend(main.as_deref());
+        order.extend(texts.iter().filter(|t| t.1.contains("\\usepackage")).map(|t| t.0.as_path()));
+        let Some((target, at, ins)) =
+            order.into_iter().find_map(|p| text_of(p).and_then(|t| lf_tex::packages::insertion(t, pkg)).map(|(at, ins)| (p.to_path_buf(), at, ins)))
+        else {
+            return;
+        };
+        let line = format!("\\usepackage{{{pkg}}}");
+        let open = ws.docs.iter_mut().find_map(|d| match d {
+            Doc::Text(t) if t.rel == target => Some(t),
+            _ => None,
+        });
+        let result = match open {
+            Some(doc) => {
+                doc.insert_at(&ctx, at, &ins);
+                Ok(())
+            }
+            None => {
+                let mut t = text_of(&target).unwrap_or_default().to_string();
+                t.insert_str(at, &ins);
+                lf_core::write_atomic(&ws.project.root.join(&target), t.as_bytes())
+            }
+        };
+        self.status = match result {
+            Ok(()) => format!("Added {line} to {}", target.display()),
+            Err(e) => format!("Could not add {line} to {}: {e}", target.display()),
+        };
     }
 
     fn autosave(&mut self) {
@@ -716,6 +808,13 @@ impl App {
             )
         });
         let (save, build, stop, quick, search, new_project, open, history, close) = i;
+        let help = ctx.input(|i| i.key_pressed(Key::F1) || i.modifiers.command && i.key_pressed(Key::Questionmark));
+        if help {
+            self.dialog = match self.dialog {
+                Some(Dialog::Shortcuts { .. }) => None,
+                _ => Some(Dialog::Shortcuts { query: String::new() }),
+            };
+        }
         if new_project {
             self.gallery = Some(Gallery::new(&self.cfg));
         }
@@ -761,6 +860,63 @@ impl App {
         }
     }
 
+    /// Ctrl+Click in the editor: opens the label, bibliography entry or file.
+    fn follow_link(&mut self, link: Link) {
+        let Some(ws) = &self.ws else { return };
+        let current_dir = ws.active.and_then(|a| ws.docs.get(a)).and_then(|d| d.rel().parent().map(Path::to_path_buf)).unwrap_or_default();
+        match link {
+            Link::Label(k) => {
+                let needle = format!("\\label{{{k}}}");
+                match self.find_line(&["tex", "md"], |l| lf_tex::outline::strip_comment(l).contains(&needle)) {
+                    Some((rel, line)) => self.open_at(&rel, line),
+                    None => self.status = format!("No \\label{{{k}}} in the project"),
+                }
+            }
+            Link::Citation(k) => {
+                let entry = |l: &str| {
+                    let l = l.trim_start();
+                    l.starts_with('@') && l.split_once(['{', '(']).is_some_and(|(_, rest)| rest.split(',').next().is_some_and(|key| key.trim() == k))
+                };
+                match self.find_line(&["bib"], entry) {
+                    Some((rel, line)) => self.open_at(&rel, line),
+                    None => self.status = format!("No entry \"{k}\" in the project's .bib files"),
+                }
+            }
+            Link::File(f) => {
+                let f = f.trim_start_matches("./");
+                let exts = ["", ".tex", ".bib", ".md", ".png", ".jpg", ".jpeg", ".pdf"];
+                let found = [current_dir.join(f), PathBuf::from(f)]
+                    .into_iter()
+                    .flat_map(|base| exts.iter().map(move |e| PathBuf::from(format!("{}{e}", base.display()))))
+                    .find(|p| ws.files.iter().any(|x| x == p));
+                match found {
+                    Some(rel) => self.open_file(&rel),
+                    None => self.status = format!("File not found: {f}"),
+                }
+            }
+        }
+    }
+
+    /// First line (1-based) in a project file with one of `exts` for which
+    /// `hit` is true. Open files are searched in their editor buffer.
+    fn find_line(&self, exts: &[&str], hit: impl Fn(&str) -> bool) -> Option<(PathBuf, u32)> {
+        let ws = self.ws.as_ref()?;
+        for rel in &ws.files {
+            if !rel.extension().and_then(|e| e.to_str()).is_some_and(|e| exts.contains(&e)) {
+                continue;
+            }
+            let open = ws.docs.iter().find_map(|d| match d {
+                Doc::Text(t) if &t.rel == rel => Some(t.text.clone()),
+                _ => None,
+            });
+            let Some(text) = open.or_else(|| std::fs::read_to_string(ws.project.root.join(rel)).ok()) else { continue };
+            if let Some(i) = text.lines().position(&hit) {
+                return Some((rel.clone(), i as u32 + 1));
+            }
+        }
+        None
+    }
+
     fn toggle_history(&mut self) {
         if let Some(ws) = &mut self.ws {
             ws.history_view = if ws.history_view.is_some() { None } else { Some(HistoryView::new(&ws.history)) };
@@ -799,7 +955,10 @@ impl App {
                         self.status = if self.cfg.vim { "Vim mode on – Esc for normal mode, i to insert".into() } else { "Vim mode off".into() };
                         ui.close();
                     }
-                    ui.label(RichText::new("In the editor: Ctrl+F find · Ctrl+/ comment · Ctrl+J show in PDF").small().color(pal.dim));
+                    if ui.button("Keyboard Shortcuts…    F1").clicked() {
+                        self.dialog = Some(Dialog::Shortcuts { query: String::new() });
+                        ui.close();
+                    }
                 });
             });
             ui.menu_button("View", |ui| {
@@ -864,8 +1023,8 @@ impl App {
                 });
             });
             ui.menu_button("Help", |ui| {
-                if ui.button("Keyboard Shortcuts").clicked() {
-                    self.dialog = Some(Dialog::Shortcuts);
+                if ui.button("Keyboard Shortcuts    F1").clicked() {
+                    self.dialog = Some(Dialog::Shortcuts { query: String::new() });
                     ui.close();
                 }
                 if ui.button("System Check").clicked() {
@@ -1246,10 +1405,12 @@ impl App {
                 pdf_action = self.pdf_pane(ui, pal);
             } else {
                 editor_action = self.editor_pane(ui, pal);
+                self.after_editor();
             }
         });
         match editor_action {
             Some(EditorAction::SyncToPdf(l, c)) => self.forward_sync(l, c),
+            Some(EditorAction::Follow(link)) => self.follow_link(link),
             Some(EditorAction::Save) => {
                 // `:w` behaves like Ctrl+S
                 let n = self.save_all();
@@ -1336,6 +1497,7 @@ impl App {
         let entries: Vec<LogEntry> = ws.last.as_ref().map(|l| l.entries.clone()).unwrap_or_default();
         let files: Vec<String> = ws.files.iter().map(|f| f.to_string_lossy().to_string()).collect();
         let ctx = ui.ctx().clone();
+        let usage = &self.usage;
         match &mut ws.docs[a] {
             Doc::Text(d) => {
                 let rel = d.rel.to_string_lossy().to_string();
@@ -1348,7 +1510,7 @@ impl App {
                     })
                     .map(|e| (e.line.unwrap(), e.level, e.message.clone()))
                     .collect();
-                let env = EditorEnv { problems, labels: &ws.labels, bib_keys: &ws.bib_keys, files: &files, font_size, vim };
+                let env = EditorEnv { problems, labels: &ws.labels, bib_keys: &ws.bib_keys, files: &files, font_size, vim, usage };
                 d.ui(ui, pal, &env)
             }
             Doc::Image(im) => {
@@ -1780,33 +1942,34 @@ impl App {
                     keep = false;
                 }
             }
-            Dialog::Shortcuts => {
-                ui.set_width(460.0);
-                ui.heading("Keyboard Shortcuts");
-                egui::Grid::new("keys").num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
-                    for (k, v) in [
-                        ("Ctrl+S", "Save all and compile"),
-                        ("Ctrl+Enter", "Compile"),
-                        ("Ctrl+.", "Stop compiling"),
-                        ("Ctrl+J", "Show cursor position in the PDF"),
-                        ("Double-click PDF", "Jump to the source"),
-                        ("Ctrl+F", "Find & replace in file"),
-                        ("Ctrl+Shift+F", "Find in project"),
-                        ("Ctrl+P", "Go to file"),
-                        ("Ctrl+/", "Toggle comment"),
-                        ("Tab / Enter", "Accept completion"),
-                        ("Ctrl+H", "History"),
-                        ("Ctrl+W", "Close tab"),
-                        ("Ctrl+Shift+N", "New project from template"),
-                        ("Ctrl+O", "Open project folder"),
-                        ("Ctrl+wheel, Ctrl +/−", "Zoom PDF"),
-                    ] {
-                        ui.label(RichText::new(k).monospace());
-                        ui.label(v);
-                        ui.end_row();
+            Dialog::Shortcuts { query } => {
+                ui.set_width(560.0);
+                ui.horizontal(|ui| {
+                    ui.heading("Keyboard Shortcuts");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.add(egui::TextEdit::singleline(query).hint_text("Filter…").desired_width(180.0)).request_focus();
+                    });
+                });
+                ui.add_space(4.0);
+                let groups = crate::shortcuts::filtered(query);
+                egui::ScrollArea::vertical().max_height(ctx.content_rect().height() * 0.7).auto_shrink([false, true]).show(ui, |ui| {
+                    if groups.is_empty() {
+                        ui.label(RichText::new("No shortcut matches.").color(pal.dim));
+                    }
+                    for (g, items) in &groups {
+                        ui.label(RichText::new(*g).strong().color(pal.accent2));
+                        egui::Grid::new(("keys", *g)).num_columns(2).spacing([24.0, 4.0]).min_col_width(210.0).striped(true).show(ui, |ui| {
+                            for (k, v) in items {
+                                ui.label(RichText::new(*k).monospace());
+                                ui.label(*v);
+                                ui.end_row();
+                            }
+                        });
+                        ui.add_space(8.0);
                     }
                 });
-                if ui.button("Close").clicked() || esc || enter {
+                ui.label(RichText::new("Editing shortcuts apply in the editor; in Vim mode in insert mode.").small().color(pal.dim));
+                if ui.button("Close").clicked() || esc {
                     keep = false;
                 }
             }

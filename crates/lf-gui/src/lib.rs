@@ -7,6 +7,7 @@ mod editor;
 mod history_ui;
 pub mod offscreen;
 mod pdfview;
+mod shortcuts;
 mod templates_ui;
 mod theme;
 mod vim;

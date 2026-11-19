@@ -7,6 +7,7 @@ pub mod hints;
 pub mod lexer;
 pub mod log;
 pub mod outline;
+pub mod packages;
 pub mod synctex;
 pub mod tools;
 

@@ -117,7 +117,10 @@ impl Cancel {
         let pid = self.pid.load(Ordering::SeqCst);
         if pid != 0 {
             // latexmk runs in its own process group: stop it and all children
+            #[cfg(unix)]
             let _ = Command::new("kill").arg("-TERM").arg(format!("-{pid}")).stderr(Stdio::null()).status();
+            #[cfg(windows)]
+            let _ = crate::tools::command("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).stdout(Stdio::null()).stderr(Stdio::null()).status();
         }
     }
 
@@ -156,8 +159,18 @@ pub fn run(job: &Job, cancel: &Cancel) -> Outcome {
     // \include{chapters/x} writes chapters/x.aux into the output directory:
     // TeX cannot create folders, so mirror the project's folder structure
     mirror_dirs(&job.root, &job.root, &job.out_dir, 0);
-    let mut cmd = Command::new("latexmk");
-    cmd.arg(job.engine.latexmk_flag())
+    // a Markdown main file is converted to LaTeX first
+    let md = if is_markdown(&job.main) {
+        match prepare_markdown(job) {
+            Ok(m) => Some(m),
+            Err(e) => return Outcome { launch_error: Some(e), duration: start.elapsed(), ..Default::default() },
+        }
+    } else {
+        None
+    };
+    let engine = md.as_ref().map_or(job.engine, |m| m.engine);
+    let mut cmd = crate::tools::command("latexmk");
+    cmd.arg(engine.latexmk_flag())
         .arg("-synctex=1")
         .arg("-interaction=nonstopmode")
         .arg("-file-line-error")
@@ -173,7 +186,7 @@ pub fn run(job: &Job, cancel: &Cancel) -> Outcome {
     if !previous.is_empty() && log::parse(&previous).iter().any(|e| e.level == Level::Error) {
         cmd.arg("-g");
     }
-    cmd.arg(&job.main)
+    cmd.arg(md.as_ref().map_or_else(|| job.main.clone(), |m| PathBuf::from(&m.tex_arg)))
         .current_dir(&job.root)
         .env("TEXINPUTS", search_path(&job.root))
         .env("BIBINPUTS", search_path(&job.root))
@@ -220,9 +233,23 @@ pub fn run(job: &Job, cancel: &Cancel) -> Outcome {
         out.pdf = Some(pdf);
     }
     if out.entries.iter().any(|e| e.level == Level::Error) {
-        let sources = document_sources(&job.root, &job.main.to_string_lossy());
+        let mut sources = document_sources(&job.root, &job.main.to_string_lossy());
+        if let Some(m) = &md {
+            sources.push((m.tex_rel.clone(), m.tex.clone()));
+        }
         locate_missing(&sources, &mut out.entries);
         crate::hints::add(&sources, &mut out.entries);
+    }
+    // positions in the generated LaTeX → the Markdown file
+    if let Some(m) = &md {
+        let main = job.main.to_string_lossy().to_string();
+        for e in &mut out.entries {
+            if e.file.as_deref() == Some(m.tex_rel.as_str()) {
+                e.file = Some(main.clone());
+                e.line = e.line.and_then(|l| m.map.md_line(l));
+                e.message = remap_input_lines(&e.message, &m.map);
+            }
+        }
     }
     for e in out.entries.iter_mut().filter(|e| e.file.is_none() && e.message.starts_with("Missing \\end{document}")) {
         let lines = std::fs::read_to_string(job.root.join(&job.main)).map(|s| s.lines().count()).unwrap_or(1);
@@ -257,6 +284,76 @@ fn project_sources(root: &Path) -> Vec<(String, String)> {
         }
     }
     out
+}
+
+pub fn is_markdown(p: &Path) -> bool {
+    p.extension().is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"))
+}
+
+/// A Markdown main file converted to LaTeX for one run.
+struct MdRun {
+    /// Generated file relative to the root, as the log names it.
+    tex_rel: String,
+    /// Argument for latexmk (`./…`, so the log names it as a file).
+    tex_arg: String,
+    tex: String,
+    map: lf_md::LineMap,
+    engine: Engine,
+}
+
+/// Converts the Markdown main file into `<out_dir>/<name>.tex` plus a line
+/// map `<name>.mdmap` (SyncTeX reads it later). The generated file is only
+/// rewritten when it changes, so latexmk does not rerun for nothing.
+fn prepare_markdown(job: &Job) -> Result<MdRun, String> {
+    let src = std::fs::read_to_string(job.root.join(&job.main)).map_err(|e| format!("{}: {e}", job.main.display()))?;
+    let front = lf_md::front_matter(&src);
+    let engine = front.engine.as_deref().and_then(Engine::from_name).unwrap_or(job.engine);
+    let base_dir = job.main.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    let opts = lf_md::Options {
+        base_dir,
+        unicode_engine: engine != Engine::Pdflatex,
+        source_name: job.main.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+    };
+    let out = lf_md::convert(&src, &opts);
+    let tex_path = job.pdf_path().with_extension("tex");
+    let map = lf_md::LineMap { source: job.main.to_string_lossy().to_string(), lines: out.map };
+    if std::fs::read_to_string(&tex_path).ok().as_deref() != Some(out.tex.as_str()) {
+        std::fs::write(&tex_path, &out.tex).map_err(|e| format!("{}: {e}", tex_path.display()))?;
+    }
+    let _ = std::fs::write(tex_path.with_extension("mdmap"), map.to_text());
+    let root = job.root.canonicalize().unwrap_or_else(|_| job.root.clone());
+    let abs = tex_path.canonicalize().unwrap_or_else(|_| tex_path.clone());
+    let tex_rel = abs.strip_prefix(&root).map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| abs.to_string_lossy().to_string());
+    let tex_arg = if Path::new(&tex_rel).is_absolute() { tex_rel.clone() } else { format!("./{tex_rel}") };
+    Ok(MdRun { tex_rel, tex_arg, tex: out.tex, map, engine })
+}
+
+/// "… on input line 47" in a message about the generated LaTeX → the Markdown line.
+fn remap_input_lines(msg: &str, map: &lf_md::LineMap) -> String {
+    const PAT: &str = "input line ";
+    let mut out = String::with_capacity(msg.len());
+    let mut rest = msg;
+    while let Some(p) = rest.find(PAT) {
+        out.push_str(&rest[..p + PAT.len()]);
+        rest = &rest[p + PAT.len()..];
+        let digits = rest.chars().take_while(|c| c.is_ascii_digit()).count();
+        match rest[..digits].parse().ok().and_then(|l| map.md_line(l)) {
+            Some(l) => out.push_str(&l.to_string()),
+            None => out.push_str(&rest[..digits]),
+        }
+        rest = &rest[digits..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Converts a Markdown file into a standalone LaTeX document (File › Export
+/// as LaTeX). Paths stay relative to the Markdown file.
+pub fn markdown_to_latex(src: &str, engine: Engine, name: &str) -> String {
+    let front = lf_md::front_matter(src);
+    let engine = front.engine.as_deref().and_then(Engine::from_name).unwrap_or(engine);
+    let opts = lf_md::Options { base_dir: String::new(), unicode_engine: engine != Engine::Pdflatex, source_name: name.to_string() };
+    lf_md::convert(src, &opts).tex
 }
 
 /// Sources of the document being compiled: the main file and files without

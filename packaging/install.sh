@@ -50,20 +50,7 @@ put 755 "$src/uninstall.sh" "$own/uninstall.sh"
 
 desktop="$data/applications/arvidleaf.desktop"
 mkdir -p "$(dirname "$desktop")"
-cat > "$desktop" <<DESKTOP
-[Desktop Entry]
-Type=Application
-Name=arvidleaf
-Comment=Local LaTeX editor with PDF preview
-Exec=$prefix/bin/arvidleaf %F
-Icon=arvidleaf
-Terminal=false
-Categories=Office;Publishing;
-MimeType=text/x-tex;application/x-tex;
-StartupWMClass=arvidleaf
-Version=1.5
-X-Arvidleaf-Version=$version
-DESKTOP
+sh "$src/desktop-entry.sh" "$prefix/bin/arvidleaf" "$version" > "$desktop"
 echo "$desktop" >> "$list"
 
 update-desktop-database "$data/applications" 2>/dev/null || true

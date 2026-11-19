@@ -28,6 +28,7 @@ install -m644 icons/arvidleaf-icon.svg "$stage/share/icons/arvidleaf.svg"
 install -m644 icons/arvidleaf-256.png "$stage/share/icons/arvidleaf-256.png"
 install -m755 packaging/install.sh "$stage/install.sh"
 install -m755 packaging/uninstall.sh "$stage/uninstall.sh"
+install -m755 packaging/desktop-entry.sh "$stage/desktop-entry.sh"
 install -m644 LICENSE-MIT LICENSE-APACHE README.md CHANGELOG.md "$stage/"
 echo "$version" > "$stage/VERSION"
 
