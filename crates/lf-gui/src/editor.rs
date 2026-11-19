@@ -1786,6 +1786,8 @@ pub fn highlight(src: &str, font: &FontId, pal: &Palette, err_lines: &[u32]) -> 
         if err_lines.contains(&line) {
             err_ranges.push((start, src.len()));
         }
+        // an empty line has nothing to mark
+        err_ranges.retain(|(s, e)| s < e);
     }
     let tokens = lexer::tokenize(src);
     let mut job = LayoutJob { text: src.to_owned(), ..Default::default() };
@@ -1803,12 +1805,13 @@ pub fn highlight(src: &str, font: &FontId, pal: &Palette, err_lines: &[u32]) -> 
             section(a, b, fmt(tok.tok, false));
             continue;
         }
-        // split the token at error-line boundaries
+        // split the token at error-line boundaries; every arm moves `pos` or `k` forward
         let mut pos = a;
         let mut k = er;
         while pos < b {
             match err_ranges.get(k) {
-                Some(&(s, e)) if pos >= s && pos < e => {
+                Some(&(_, e)) if e <= pos => k += 1,
+                Some(&(s, e)) if s <= pos => {
                     let end = e.min(b);
                     section(pos, end, fmt(tok.tok, true));
                     pos = end;
@@ -1899,6 +1902,27 @@ mod tests {
             assert_eq!(s.format.underline.width > 0.0, on_line_2 && !text.is_empty(), "{text:?}");
         }
         assert_eq!(pos, src.len());
+    }
+
+    /// An error on an empty line (its text was just deleted) used to loop
+    /// forever and fill the memory until the program aborted.
+    #[test]
+    fn highlight_survives_errors_on_empty_lines() {
+        let pal = crate::theme::dark();
+        let font = FontId::monospace(13.0);
+        for (src, lines) in [
+            ("\\title{t}\n\n\\author{a}\n", &[2u32][..]),
+            ("a\n\n\n$$\n", &[2, 3, 4]),
+            ("x\n", &[2]),
+            ("\n", &[1, 2]),
+            ("", &[1]),
+            ("\\begin{document}\n\n\\end{document}", &[2, 3, 9]),
+        ] {
+            let job = highlight(src, &font, &pal, lines);
+            let covered: usize = job.sections.iter().map(|s| usize::from(s.byte_range.end) - usize::from(s.byte_range.start)).sum();
+            assert_eq!(covered, src.len(), "{src:?}");
+            assert!(job.sections.len() <= src.len() + 1, "{src:?}: {} sections", job.sections.len());
+        }
     }
 
     #[test]

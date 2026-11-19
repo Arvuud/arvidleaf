@@ -2,6 +2,9 @@
 
 ## Unveröffentlicht – Installation auf Linux, Windows und macOS
 
+- **Absturz behoben:** Stand ein LaTeX-Fehler auf einer leeren Zeile (z. B. nachdem man den
+  Inhalt der Fehlerzeile gelöscht hatte), lief die Fehlermarkierung im Editor in eine
+  Endlosschleife, bis der Speicher voll war und das Programm abbrach.
 - `install.sh` überarbeitet: `--update`, `--system`, `--dev` (ersetzt `install-desktop.sh`), zypper,
   Rust ≥ 1.95 über rustup, falls die Distribution ein älteres hat, Hinweis bei laufender App.
 - Starter (`.desktop`) aus einer gemeinsamen Vorlage (`packaging/desktop-entry.sh`): GenericName,
