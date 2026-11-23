@@ -99,6 +99,8 @@ struct Workspace {
 
 pub struct App {
     cfg: Config,
+    /// An input method is composing text (see `drop_idle_preedits`).
+    ime_composing: bool,
     ws: Option<Workspace>,
     gallery: Option<Gallery>,
     manager: Option<Manager>,
@@ -150,6 +152,7 @@ impl App {
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         let (tx, rx) = channel();
         let mut app = App {
+            ime_composing: false,
             previews: Previews::new(ctx),
             cfg,
             ws: None,
@@ -2175,7 +2178,32 @@ fn image_view(ui: &mut egui::Ui, ctx: &egui::Context, im: &mut ImageDoc, pal: &P
     }
 }
 
+/// Removes the empty IME preedits winit sends on Wayland whenever the
+/// compositor confirms the cursor area (`done`) while nothing is being
+/// composed. egui answers every event with a new cursor area, so KWin and the
+/// app would ping-pong forever: constant repaints, and each preedit used to
+/// hide the next keys from the editor. An empty preedit that ends a real
+/// composition stays.
+pub fn drop_idle_preedits(events: &mut Vec<egui::Event>, composing: &mut bool) {
+    events.retain(|e| match e {
+        egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) if text.is_empty() => std::mem::replace(composing, false),
+        egui::Event::Ime(egui::ImeEvent::Preedit { .. }) => {
+            *composing = true;
+            true
+        }
+        egui::Event::Ime(egui::ImeEvent::Commit(_)) => {
+            *composing = false;
+            true
+        }
+        _ => true,
+    });
+}
+
 impl eframe::App for App {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        drop_idle_preedits(&mut raw_input.events, &mut self.ime_composing);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.draw(ui);
     }
@@ -2183,5 +2211,27 @@ impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.close_project();
         let _ = self.cfg.save();
+    }
+}
+
+#[cfg(test)]
+mod ime_tests {
+    use super::drop_idle_preedits;
+    use egui::{Event, ImeEvent};
+
+    fn pre(t: &str) -> Event {
+        Event::Ime(ImeEvent::Preedit { text: t.into(), active_range_chars: None })
+    }
+
+    #[test]
+    fn idle_preedits_are_dropped_but_end_of_composition_stays() {
+        let mut composing = false;
+        let mut ev = vec![pre(""), Event::Text("(".into()), pre("")];
+        drop_idle_preedits(&mut ev, &mut composing);
+        assert_eq!(ev, vec![Event::Text("(".into())]);
+        let mut ev = vec![pre("ä"), pre(""), pre("")];
+        drop_idle_preedits(&mut ev, &mut composing);
+        assert_eq!(ev, vec![pre("ä"), pre("")], "the first empty preedit clears the composition");
+        assert!(!composing);
     }
 }

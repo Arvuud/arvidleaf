@@ -1,4 +1,4 @@
-//! How often the user picked each completion (`~/.config/arvidleaf/usage.json`),
+//! How often the user picked or typed each completion (`~/.config/arvidleaf/usage.json`),
 //! so suggestions follow what they actually write.
 
 use std::collections::HashMap;
@@ -17,6 +17,9 @@ pub struct Usage {
 
 /// Entries kept at most; the least used are dropped beyond this.
 const MAX: usize = 2000;
+/// When all counts together pass this, every count is halved: recent habits
+/// win over old ones (switching from `\leq` to `\leqslant` shows soon).
+const AGE_AT: u64 = 20_000;
 
 impl Usage {
     pub fn path() -> PathBuf {
@@ -45,6 +48,10 @@ impl Usage {
     pub fn record(&mut self, key: &str) {
         *self.counts.entry(key.to_string()).or_default() += 1;
         self.dirty = true;
+        if self.counts.values().map(|n| u64::from(*n)).sum::<u64>() > AGE_AT {
+            self.counts.values_mut().for_each(|n| *n /= 2);
+            self.counts.retain(|_, n| *n > 0);
+        }
         if self.counts.len() > MAX {
             let mut v: Vec<(String, u32)> = self.counts.drain().collect();
             v.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
@@ -74,5 +81,18 @@ mod tests {
         }
         assert!(u.counts.len() <= MAX);
         assert_eq!(u.get("cmd:a"), 2, "frequent entries survive pruning");
+    }
+
+    #[test]
+    fn old_habits_fade() {
+        let mut u = Usage::default();
+        for _ in 0..10_000 {
+            u.record("cmd:leq");
+        }
+        for _ in 0..12_000 {
+            u.record("cmd:leqslant");
+        }
+        assert!(u.get("cmd:leq") <= 5_000, "counts were halved");
+        assert!(u.get("cmd:leqslant") > u.get("cmd:leq"));
     }
 }

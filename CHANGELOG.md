@@ -2,6 +2,16 @@
 
 ## Unveröffentlicht – Installation auf Linux, Windows und macOS
 
+- **Klammer-Paare und Vorschlagsauswahl unter KDE Wayland repariert:** winit schickte nach
+  jeder Cursorbewegung ein leeres IME-Ereignis, das die Editor-Kürzel aushebelte und die App
+  ständig neu zeichnen ließ. Die Ereignisse werden jetzt herausgefiltert. Zeichen über eine
+  Eingabemethode und AltGr als Strg+Alt werden ebenfalls gepaart.
+  `ARVIDLEAF_DEBUG_KEYS=1` gibt die Tastenereignisse des Editors aus.
+- **Vorschläge nach Häufigkeit und Gewohnheit:** Die Reihenfolge berücksichtigt, wie verbreitet
+  ein Befehl ist, ob der Cursor in Mathe oder im Text steht (`\be` → `\begin` im Text,
+  `\beta` in Mathe), die Befehle des Dokuments und vor allem das eigene Verhalten über alle
+  Projekte. Auch von Hand getippte Befehle zählen (wer `\leqslant` schreibt, bekommt es vor
+  `\leq`). Alte Gewohnheiten verblassen mit der Zeit. Weitere Mathe-Befehle sind hinzugekommen.
 - **Absturz behoben:** Stand ein LaTeX-Fehler auf einer leeren Zeile (z. B. nachdem man den
   Inhalt der Fehlerzeile gelöscht hatte), lief die Fehlermarkierung im Editor in eine
   Endlosschleife, bis der Speicher voll war und das Programm abbrach.

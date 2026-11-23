@@ -12,6 +12,13 @@ pub const COMMANDS: &[&str] = &[
     "smallskip", "medskip", "bigskip", "input{}", "include{}", "bibliography{}", "bibliographystyle{}", "addbibresource{}", "printbibliography",
     "newcommand{}{}", "renewcommand{}{}", "newenvironment{}{}{}", "setlength{}{}", "textwidth", "linewidth", "columnwidth", "frac{}{}", "dfrac{}{}",
     "sqrt{}", "sum", "prod", "int", "iint", "oint", "lim", "infty", "partial", "nabla", "cdot", "times", "leq", "geq", "neq", "approx", "equiv",
+    "leqslant", "geqslant", "ll", "gg", "le", "ge", "pm", "mp", "div", "circ", "ast", "star", "otimes", "oplus", "setminus", "emptyset", "varnothing",
+    "mid", "parallel", "perp", "langle", "rangle", "lfloor", "rfloor", "lceil", "rceil", "sup", "inf", "max", "min", "log", "ln", "exp", "sin", "cos",
+    "tan", "det", "dim", "ker", "arg", "deg", "mathfrak{}", "mathsf{}", "widehat{}", "widetilde{}", "underline{}", "cdotp", "colon", "coloneqq",
+    "iff", "implies", "impliedby", "longrightarrow", "longmapsto", "hookrightarrow", "uparrow", "downarrow", "leftrightarrow", "ell", "hbar", "Re", "Im",
+    "aleph", "wedge", "vee", "neg", "lnot", "top", "bot", "vdash", "models", "subsetneq", "supset", "supseteq", "bigcup", "bigcap", "coprod", "simeq",
+    "cong", "prec", "succ", "preceq", "succeq", "tfrac{}{}", "cfrac{}{}", "stackrel{}{}", "overset{}{}", "underset{}{}", "xrightarrow{}", "boxed{}",
+    "displaystyle", "textstyle", "nonumber", "notag", "tag{}",
     "sim", "propto", "in", "notin", "subset", "subseteq", "cup", "cap", "forall", "exists", "rightarrow", "leftarrow", "Rightarrow", "Leftarrow",
     "Leftrightarrow", "mapsto", "to", "alpha", "beta", "gamma", "delta", "epsilon", "varepsilon", "zeta", "eta", "theta", "vartheta", "iota",
     "kappa", "lambda", "mu", "nu", "xi", "pi", "rho", "sigma", "tau", "upsilon", "phi", "varphi", "chi", "psi", "omega", "Gamma", "Delta", "Theta",
@@ -32,6 +39,160 @@ pub const ENVIRONMENTS: &[&str] = &[
     "columns", "column", "tikzpicture", "axis", "theorem", "lemma", "proof", "definition", "corollary", "remark", "example", "thebibliography",
     "titlepage", "subfigure", "wrapfigure", "appendices",
 ];
+
+/// How common a command is in LaTeX documents in general (0 = rare … 3 =
+/// in almost every document). Users' own habits weigh far more, see
+/// [`command_score`].
+pub fn base_frequency(name: &str) -> u32 {
+    const VERY_COMMON: &[&str] = &[
+        "begin", "end", "section", "subsection", "label", "ref", "cite", "textbf", "emph", "item", "frac", "includegraphics", "usepackage",
+        "caption", "documentclass", "textit", "left", "right", "mathbb", "alpha", "cdot", "sum", "int", "infty", "leq", "geq", "text", "mathrm",
+        "eqref", "footnote", "centering", "hline", "sqrt", "lambda", "mu", "pi", "sigma", "partial", "in", "to",
+    ];
+    const COMMON: &[&str] = &[
+        "chapter", "subsubsection", "maketitle", "title", "author", "date", "beta", "gamma", "delta", "theta", "varphi", "phi", "epsilon",
+        "varepsilon", "omega", "rho", "tau", "nabla", "times", "approx", "neq", "rightarrow", "Rightarrow", "mathcal", "mathbf", "hat", "bar",
+        "vec", "dot", "tilde", "overline", "ldots", "cdots", "quad", "qquad", "vspace", "hspace", "newcommand", "input", "tableofcontents", "url",
+        "href", "texttt", "lim", "operatorname", "boldsymbol", "newpage", "noindent", "cref", "pm", "le", "ge", "forall", "exists", "subset",
+        "subseteq", "cup", "cap", "mapsto", "equiv", "sim", "log", "exp", "sin", "cos", "max", "min", "sup", "inf", "langle", "rangle", "dfrac",
+        "binom", "prod", "Delta", "Omega", "Sigma", "ell", "mid", "circ", "iff", "implies", "dots", "par", "textwidth", "linewidth", "small",
+        "footnotesize", "large", "toprule", "midrule", "bottomrule", "multicolumn", "bibliography", "bibliographystyle", "printbibliography",
+        "addbibresource", "SI", "si", "qty", "num", "big", "Big", "displaystyle", "nonumber", "tag", "setminus", "emptyset", "otimes", "kappa",
+        "eta", "xi", "psi", "chi", "zeta", "nu", "Gamma", "Lambda", "Phi", "Psi", "Pi", "Theta",
+    ];
+    if VERY_COMMON.contains(&name) {
+        3
+    } else if COMMON.contains(&name) {
+        2
+    } else if COMMANDS.iter().any(|c| c.split('{').next() == Some(name)) {
+        1
+    } else {
+        0
+    }
+}
+
+/// Where a command belongs: `Some(true)` only in math, `Some(false)` only in
+/// text, `None` anywhere (or unknown).
+pub fn math_only(name: &str) -> Option<bool> {
+    const TEXT: &[&str] = &[
+        "documentclass", "usepackage", "begin", "title", "author", "date", "maketitle", "tableofcontents", "listoffigures", "listoftables",
+        "part", "chapter", "section", "subsection", "subsubsection", "paragraph", "subparagraph", "label", "ref", "eqref", "pageref",
+        "autoref", "cref", "Cref", "cite", "citep", "citet", "parencite", "textcite", "footnote", "textbf", "textit", "texttt", "textsc",
+        "textsf", "textrm", "emph", "underline", "url", "href", "includegraphics", "caption", "centering", "item", "newpage", "clearpage",
+        "cleardoublepage", "pagebreak", "linebreak", "noindent", "vspace", "vfill", "smallskip", "medskip", "bigskip", "input", "include",
+        "bibliography", "bibliographystyle", "addbibresource", "printbibliography", "hline", "toprule", "midrule", "bottomrule", "multicolumn",
+        "multirow", "frametitle", "pause", "appendix", "footnotemark", "footnotetext", "marginpar", "newline", "par", "today", "LaTeX", "TeX",
+        "textcolor", "graphicspath", "hypersetup", "geometry", "newcommand", "renewcommand", "newenvironment", "tiny", "scriptsize",
+        "footnotesize", "small", "normalsize", "large", "Large", "LARGE", "huge", "Huge", "end",
+    ];
+    if TEXT.contains(&name) {
+        return Some(false);
+    }
+    const ANYWHERE: &[&str] = &[
+        "hspace", "quad", "qquad", "ldots", "dots", "text", "textwidth", "linewidth", "columnwidth", "setlength", "si", "SI", "qty", "num",
+        "unit", "color", "ensuremath", "verb", "hfill", "vdots",
+    ];
+    if ANYWHERE.contains(&name) {
+        return None;
+    }
+    // the rest of the built-in list is math (Greek, operators, relations, accents …)
+    COMMANDS.iter().any(|c| c.split('{').next() == Some(name)).then_some(true)
+}
+
+/// Whether the cursor at the end of `before` is in math mode: inside `$…$`,
+/// `$$…$$`, `\(…\)`, `\[…\]` or a math environment, and not in a `\text{…}`
+/// inside it. Looks at the last few thousand characters only.
+pub fn in_math(before: &str) -> bool {
+    let mut cut = before.len().saturating_sub(6000);
+    while !before.is_char_boundary(cut) {
+        cut += 1;
+    }
+    let s = &before[cut..];
+    let b = s.as_bytes();
+    let mut math = false;
+    // depth of math environments; `$`-style math as a flag
+    let mut envs: Vec<String> = Vec::new();
+    // brace depth where a `\text{` (or similar) inside math started
+    let mut text_at: Vec<usize> = Vec::new();
+    let mut depth = 0usize;
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'%' => {
+                i = s[i..].find('\n').map_or(b.len(), |p| i + p);
+                continue;
+            }
+            b'{' => depth += 1,
+            b'}' => {
+                if text_at.last() == Some(&depth) {
+                    text_at.pop();
+                }
+                depth = depth.saturating_sub(1);
+            }
+            b'$' => {
+                if b.get(i + 1) == Some(&b'$') {
+                    i += 1;
+                }
+                math = !math;
+            }
+            b'\\' => {
+                let start = i + 1;
+                let mut j = start;
+                while j < b.len() && b[j].is_ascii_alphabetic() {
+                    j += 1;
+                }
+                if j == start {
+                    match b.get(start) {
+                        Some(b'(') | Some(b'[') => math = true,
+                        Some(b')') | Some(b']') => math = false,
+                        _ => {}
+                    }
+                    i = start + 1;
+                    continue;
+                }
+                let name = &s[start..j];
+                let arg = || s[j..].strip_prefix('{').and_then(|r| r.split_once('}')).map(|(a, _)| a);
+                match name {
+                    "begin" => {
+                        if let Some(env) = arg().filter(|e| crate::lexer::MATH_ENVS.contains(e)) {
+                            envs.push(env.to_string());
+                        }
+                    }
+                    "end" => {
+                        if let Some(env) = arg()
+                            && envs.last().is_some_and(|e| e == env) {
+                                envs.pop();
+                            }
+                    }
+                    "text" | "textrm" | "textbf" | "textit" | "mbox" | "intertext" if (math || !envs.is_empty()) && b.get(j) == Some(&b'{') => {
+                        text_at.push(depth + 1);
+                    }
+                    _ => {}
+                }
+                i = j;
+                continue;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    (math || !envs.is_empty()) && text_at.is_empty()
+}
+
+/// Ranking score of a command completion `item` (`frac{}{}`): what the user
+/// writes across all projects (`user`: picks and hand-typed uses) weighs most,
+/// then its uses in this document (`doc`), then how common it is in general
+/// and whether it fits math or text mode at the cursor.
+pub fn command_score(item: &str, user: u32, doc: u32, math: bool) -> u32 {
+    let name = item.split('{').next().unwrap_or(item);
+    let fits = match math_only(name) {
+        Some(m) => m == math,
+        None => true,
+    };
+    // a command of the other mode keeps only what the user did with it
+    let base = if fits { 2 * base_frequency(name) + 1 } else { 0 };
+    8 * user.min(500) + 2 * doc.min(50) + base
+}
 
 /// What the user is typing at the cursor.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -217,6 +378,41 @@ mod tests {
         assert!(r.is_empty(), "{r:?}");
         let r = rank("lef", COMMANDS.iter().copied(), 12);
         assert!(r.contains(&"left") && r.contains(&"leftarrow"));
+    }
+
+    #[test]
+    fn math_mode_at_cursor() {
+        assert!(!in_math("Some text \\be"));
+        assert!(in_math("text $a + \\be"));
+        assert!(!in_math("text $a$ and \\be"));
+        assert!(in_math("\\begin{align}\n x &= \\fr"));
+        assert!(!in_math("\\begin{align}x\\end{align}\n\\se"));
+        assert!(in_math("\\[ x \\le"));
+        assert!(!in_math("\\[ x \\] \\le"));
+        assert!(!in_math("$x \\text{for all \\te"));
+        assert!(in_math("$x \\text{a} + \\al"));
+        assert!(!in_math("costs 5\\$ and \\se"));
+        assert!(!in_math("% $ comment\n\\se"));
+    }
+
+    #[test]
+    fn scores_follow_mode_and_habits() {
+        let r = |prefix: &str, math: bool, user: &dyn Fn(&str) -> u32| {
+            rank_by(prefix, COMMANDS.iter().copied(), |s| command_score(s, user(s), 0, math), 5).into_iter().map(String::from).collect::<Vec<_>>()
+        };
+        let none = |_: &str| 0;
+        // in text `\\be` means \\begin, in math \\beta
+        assert_eq!(r("be", false, &none)[0], "begin{}");
+        assert_eq!(r("be", true, &none)[0], "beta");
+        assert_eq!(r("fr", true, &none)[0], "frac{}{}");
+        assert_eq!(r("se", false, &none)[0], "section{}");
+        // someone who writes \\leqslant gets it before \\leq
+        assert_eq!(r("le", true, &none)[0], "leq");
+        let slant = |s: &str| if s == "leqslant" { 3 } else if s == "leq" { 1 } else { 0 };
+        assert_eq!(r("le", true, &slant)[0], "leqslant");
+        // \\ddot and \\dot used a lot
+        let dots = |s: &str| match s { "ddot{}" => 6, "dot{}" => 4, _ => 0 };
+        assert_eq!(r("d", true, &dots)[..2], ["ddot{}".to_string(), "dot{}".to_string()]);
     }
 
     #[test]

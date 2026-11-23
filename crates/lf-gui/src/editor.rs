@@ -51,6 +51,12 @@ pub struct EditorDoc {
     pub needs_packages: Vec<String>,
     /// Completions the user picked (`kind:item`), for the usage statistics.
     pub picked: Vec<String>,
+    /// An input method is composing text (preedit shown); its commit then
+    /// belongs to the text widget, which replaces the preedit.
+    ime_composing: bool,
+    /// Char index right behind a command name the completion inserted, so
+    /// the next key does not count it a second time as typed by hand.
+    completed_at: Option<usize>,
 }
 
 /// A closing bracket the editor inserted itself.
@@ -165,6 +171,8 @@ impl EditorDoc {
             vocab: None,
             needs_packages: Vec::new(),
             picked: Vec::new(),
+            ime_composing: false,
+            completed_at: None,
         }
     }
 
@@ -677,6 +685,11 @@ impl EditorDoc {
         self.validate_marks(sorted(range).0);
         let mut typed = None;
         let events = ctx.input(|i| i.events.clone());
+        if debug_keys() {
+            for ev in events.iter().filter(|e| matches!(e, egui::Event::Key { .. } | egui::Event::Text(_) | egui::Event::Ime(_))) {
+                eprintln!("[keys] {ev:?}");
+            }
+        }
         let mut consumed = vec![false; events.len()];
         for (k, ev) in events.iter().enumerate() {
             // the cursor as left by the previous event
@@ -759,7 +772,9 @@ impl EditorDoc {
                         *typed = Some(String::new());
                         Stop
                     }
-                    k if m.command || is_edit_key(k) => Stop,
+                    // AltGr is reported as Ctrl+Alt on some systems: AltGr+7 = `{`
+                    // is no command, its text event follows
+                    k if (m.command && !m.alt) || is_edit_key(k) => Stop,
                     _ => Pass,
                 }
             }
@@ -771,6 +786,32 @@ impl EditorDoc {
                 self.type_text(ctx, t, a, b);
                 Consumed
             }
+            // with an input method (IBus, Fcitx, KWin's text input) typed
+            // characters arrive as IME commits instead of text events
+            // winit on Wayland sends an empty preedit after every cursor move
+            // (the compositor's `done`); it changes nothing and must not end
+            // our handling of the keys after it
+            egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) if text.is_empty() => {
+                self.ime_composing = false;
+                Pass
+            }
+            egui::Event::Ime(egui::ImeEvent::Preedit { .. }) => {
+                self.ime_composing = true;
+                Stop
+            }
+            egui::Event::Ime(egui::ImeEvent::Enabled | egui::ImeEvent::Disabled) => Pass,
+            egui::Event::Ime(egui::ImeEvent::Commit(t)) if !self.ime_composing && !t.is_empty() => {
+                if !inserting {
+                    return Stop;
+                }
+                *typed = Some(t.clone());
+                self.type_text(ctx, t, a, b);
+                Consumed
+            }
+            egui::Event::Ime(egui::ImeEvent::Commit(_)) => {
+                self.ime_composing = false;
+                Stop
+            }
             egui::Event::Paste(_) | egui::Event::Cut | egui::Event::Ime(_) => Stop,
             _ => Pass,
         }
@@ -779,6 +820,9 @@ impl EditorDoc {
     /// Typed text: steps over a closer, wraps a selection, inserts a pair, or
     /// just inserts the text.
     fn type_text(&mut self, ctx: &egui::Context, t: &str, a: usize, b: usize) {
+        if let Some(ch) = t.chars().next() {
+            self.note_typed_command(a, ch);
+        }
         let mut chars = t.chars();
         let single = match (chars.next(), chars.next()) {
             (Some(c), None) => Some(c),
@@ -819,6 +863,25 @@ impl EditorDoc {
         self.splice(ctx, a, b, t, a + t.chars().count());
     }
 
+    /// A command name typed by hand and finished with `ch` (space, `{`, `_` …)
+    /// counts for the user's suggestions like a picked completion, so
+    /// someone who always writes `\leqslant` gets it before `\leq`.
+    fn note_typed_command(&mut self, cursor: usize, ch: char) {
+        if ch.is_ascii_alphabetic() || self.completed_at.take() == Some(cursor) {
+            return;
+        }
+        let before = &self.text[..byte_of_char(&self.text, cursor)];
+        let name_len = before.bytes().rev().take_while(u8::is_ascii_alphabetic).count();
+        let bs = before.len() - name_len;
+        if name_len < 2 || !before[..bs].ends_with('\\') || ends_escaped(&before[..bs - 1]) {
+            return;
+        }
+        let name = &before[bs..];
+        let template = complete::COMMANDS.iter().find(|c| c.split('{').next() == Some(name)).map(|c| c.to_string());
+        let template = template.unwrap_or_else(|| if ch == '{' { format!("{name}{{}}") } else { name.to_string() });
+        self.picked.push(format!("cmd:{template}"));
+    }
+
     /// Backspace between a pair the editor inserted (`(|)`) removes both parts.
     fn delete_pair(&mut self, ctx: &egui::Context, a: usize) -> bool {
         let Some(i) = self.closers.iter().rposition(|c| c.pos == a) else { return false };
@@ -835,6 +898,7 @@ impl EditorDoc {
     /// Enter without a selection: `\end{…}` after `\begin{…}`, a new `\item` in
     /// lists, otherwise the line's indentation.
     fn enter(&mut self, ctx: &egui::Context, a: usize) -> Handled {
+        self.note_typed_command(a, '\n');
         let byte = byte_of_char(&self.text, a);
         let line_start = self.text[..byte].rfind('\n').map_or(0, |p| p + 1);
         let line_end = self.text[byte..].find('\n').map_or(self.text.len(), |p| byte + p);
@@ -1154,13 +1218,15 @@ impl EditorDoc {
         let empty = complete::Vocab::default();
         let vocab = self.vocab.as_ref().map_or(&empty, |v| &v.1);
         let key = usage_kind(&kind);
+        let math = matches!(kind, Context::Command(_)) && complete::in_math(&self.text[..byte - prefix.len()]);
         let score = |item: &str| {
-            let doc = match kind {
-                Context::Command(_) => vocab.commands.get(item).copied().unwrap_or(0),
-                Context::Environment(_) => vocab.envs.get(item).copied().unwrap_or(0),
-                _ => 0,
-            };
-            3 * env.usage.get(&format!("{key}:{item}")) + doc
+            let user = env.usage.get(&format!("{key}:{item}"));
+            match kind {
+                // general frequency, math or text mode, the document, the user's habits
+                Context::Command(_) => complete::command_score(item, user, vocab.commands.get(item).copied().unwrap_or(0), math),
+                Context::Environment(_) => 3 * user + vocab.envs.get(item).copied().unwrap_or(0),
+                _ => 3 * user,
+            }
         };
         const N: usize = 12;
         let items: Vec<String> = match &kind {
@@ -1204,6 +1270,7 @@ impl EditorDoc {
                 let args = if rest.is_empty() { String::new() } else { format!("{{{rest}") };
                 let ins = format!("{name}{args}");
                 let cur = c.start + name.chars().count() + usize::from(!args.is_empty());
+                self.completed_at = Some(c.start + name.chars().count());
                 self.need_package(lf_tex::packages::for_command(name));
                 self.splice(ctx, c.start, cursor, &ins, cur);
                 if !args.is_empty() {
@@ -1608,6 +1675,12 @@ fn pair_for(ch: char, before: &str, next: Option<char>) -> Option<(String, Strin
         _ => return None,
     };
     Some((ch.to_string(), close.to_string()))
+}
+
+/// `ARVIDLEAF_DEBUG_KEYS=1` prints the editor's key, text and IME events.
+fn debug_keys() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ARVIDLEAF_DEBUG_KEYS").is_some_and(|v| !v.is_empty() && v != "0"))
 }
 
 /// Keys the text widget uses to edit or move the cursor.
@@ -2089,6 +2162,91 @@ mod tests {
         let (ctx, mut d) = editor("", 0, 0);
         type_str(&ctx, &mut d, "\\{ \\$");
         assert_eq!(d.text, "\\{ \\$");
+    }
+
+    /// Real keyboards send the key before its text, with the held modifiers.
+    #[test]
+    fn brackets_pair_with_real_key_sequences() {
+        let shift = egui::Modifiers::SHIFT;
+        let altgr = egui::Modifiers { alt: true, ctrl: true, command: true, ..Default::default() };
+        let (ctx, mut d) = editor("", 0, 0);
+        // German layout: Shift+8 = `(`, AltGr+7 = `{` (on some systems reported as Ctrl+Alt)
+        frame(&ctx, &mut d, &Default::default(), vec![key(Key::OpenBracket, shift), text("(")]);
+        assert_eq!(d.text, "()");
+        frame(&ctx, &mut d, &Default::default(), vec![key(Key::OpenCurlyBracket, altgr), text("{")]);
+        assert_eq!(d.text, "({})");
+        assert_eq!(cur(&ctx, &d), (2, 2));
+    }
+
+    #[test]
+    fn brackets_pair_with_an_input_method() {
+        let commit = |t: &str| egui::Event::Ime(egui::ImeEvent::Commit(t.into()));
+        let (ctx, mut d) = editor("", 0, 0);
+        frame(&ctx, &mut d, &Default::default(), vec![commit("[")]);
+        assert_eq!(d.text, "[]");
+        frame(&ctx, &mut d, &Default::default(), vec![commit("x"), commit("]")]);
+        assert_eq!(d.text, "[x]");
+        assert_eq!(cur(&ctx, &d), (3, 3));
+    }
+
+    /// KDE Wayland: winit sends an empty preedit after each cursor move, often
+    /// in the same frame as the next key.
+    #[test]
+    fn empty_preedit_does_not_disable_shortcuts() {
+        let clear = || egui::Event::Ime(egui::ImeEvent::Preedit { text: String::new(), active_range_chars: None });
+        let (ctx, mut d) = editor("", 0, 0);
+        frame(&ctx, &mut d, &Default::default(), vec![clear(), key(Key::OpenBracket, egui::Modifiers::SHIFT), text("(")]);
+        assert_eq!(d.text, "()");
+        let (ctx, mut d) = editor("$x$ ", 4, 4);
+        frame(&ctx, &mut d, &Default::default(), vec![clear(), text("\\")]);
+        frame(&ctx, &mut d, &Default::default(), vec![clear(), text("v")]);
+        assert!(d.completion.is_some(), "popup after one letter");
+        frame(&ctx, &mut d, &Default::default(), vec![clear(), key(Key::Tab, egui::Modifiers::NONE)]);
+        assert!(d.text.len() > "$x$ \\v".len(), "Tab accepts the suggestion: {}", d.text);
+        assert!(d.completion.is_none());
+    }
+
+    /// The key sequence logged on KDE Wayland with a German layout
+    /// (`ARVIDLEAF_DEBUG_KEYS=1`): `(`, `\ve`, two Backspaces, `be`, Enter.
+    #[test]
+    fn replay_logged_german_keys() {
+        let n = egui::Modifiers::NONE;
+        let sh = egui::Modifiers::SHIFT;
+        let up = |k: Key, m| egui::Event::Key { key: k, physical_key: None, pressed: false, repeat: false, modifiers: m };
+        let (ctx, mut d) = editor("", 0, 0);
+        let frames: Vec<Vec<egui::Event>> = vec![
+            vec![key(Key::Num8, sh), text("(")],
+            vec![up(Key::Num8, sh)],
+            vec![key(Key::Backslash, n), text("\\")],
+            vec![key(Key::V, n), text("v")],
+            vec![key(Key::E, n), text("e")],
+            vec![key(Key::Backspace, n)],
+            vec![key(Key::Backspace, n)],
+            vec![key(Key::B, n), text("b")],
+            vec![key(Key::E, n), text("e")],
+        ];
+        for f in frames {
+            frame(&ctx, &mut d, &Default::default(), f);
+        }
+        assert_eq!(d.text, "(\\be)");
+        let c = d.completion.as_ref().expect("suggestions for \\be");
+        let first = c.items[0].split('{').next().unwrap().to_string();
+        frame(&ctx, &mut d, &Default::default(), vec![key(Key::Enter, n)]);
+        assert!(d.text.starts_with(&format!("(\\{first}")), "Enter takes the suggestion: {:?}", d.text);
+        assert!(d.completion.is_none());
+    }
+
+    #[test]
+    fn hand_typed_commands_count_once() {
+        let (ctx, mut d) = editor("", 0, 0);
+        type_str(&ctx, &mut d, "$\\leqslant x \\myop{a} \\\\ ");
+        assert_eq!(d.picked, vec!["cmd:leqslant".to_string(), "cmd:myop{}".to_string()]);
+        // a completed command is counted as the pick only
+        let (ctx, mut d) = editor("$x ", 3, 3);
+        type_str(&ctx, &mut d, "\\alph");
+        frame(&ctx, &mut d, &Default::default(), vec![key(Key::Tab, egui::Modifiers::NONE)]);
+        type_str(&ctx, &mut d, " ");
+        assert_eq!(d.picked, vec!["cmd:alpha".to_string()]);
     }
 
     #[test]
