@@ -1,0 +1,8 @@
+[package]
+name = "lf-ref"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "arvidref: reference library (BibLaTeX parser/writer, names, LaTeX characters)"
+
+[dependencies]

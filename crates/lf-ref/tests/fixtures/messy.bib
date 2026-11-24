@@ -1,0 +1,64 @@
+% Encoding: UTF-8
+This file is deliberately messy. Contact: someone@example.org (not an entry).
+
+@STRING{ jcc = "Journal of Computational Chemistry" }
+@string(aw = {Addison-Wesley})
+@String{full = jcc # { (Online)}}
+
+@preamble{ "\newcommand{\noopsort}[1]{}" # "\providecommand{\SortNoop}{}" }
+
+@comment{ old entry, kept for reference:
+  @article{gone, title = {Gone {with} braces}}
+}
+
+@Article{quoted,
+  Author = "M{\"u}ller, J{\"o}rg and {\"O}zkal, Erhan",
+  TITLE  = "A {"}quoted{"} title with {Braces}",
+  journal = jcc,
+  month = mar, year = 2001,
+  pages = "1--10",
+}
+
+@book(paren,
+  author = {Knuth, Donald E.},
+  title = {The {\TeX book}},
+  publisher = aw # { and } # "others",
+  year = {1984}
+)
+
+@misc{nofields}
+
+@misc{ trailing , note={no comma after the last field}}
+
+@online{commented,
+  % biber accepts comments between fields
+  url = {https://example.org/a_b%20c},  % and after values
+  urldate = {2026-11-24}
+}
+
+@article{broken1,
+  title = {Missing closing brace,
+  year = 2000,
+}
+
+@article{after_broken,
+  title = {This entry must survive the broken one above},
+  year = 2002
+}
+
+@article{broken2, title = {x} year = 2003}
+
+@inproceedings{nested,
+  title = {{{Deeply} {Nested {Braces}}} and $\{x\}$},
+  abstract = {Line one.
+
+  Paragraph two with {balanced} braces.},
+}
+
+@book{müller2021neuronale,
+  author = {Müller, Jürgen},
+  title = {Neuronale Netze für Einsteiger},
+  date = {2021},
+}
+   @article{indented, title={Indented entries are fine}}
+@article{last, title = {No newline at end of file}}

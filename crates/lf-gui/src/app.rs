@@ -526,7 +526,7 @@ impl App {
                 }
                 Some("bib") => {
                     if let Some(s) = read(f) {
-                        keys.extend(lf_tex::outline::bib_keys(&s));
+                        keys.extend(lf_ref::bib::parse(&s).keys());
                     }
                 }
                 _ => {}
@@ -875,16 +875,10 @@ impl App {
                     None => self.status = format!("No \\label{{{k}}} in the project"),
                 }
             }
-            Link::Citation(k) => {
-                let entry = |l: &str| {
-                    let l = l.trim_start();
-                    l.starts_with('@') && l.split_once(['{', '(']).is_some_and(|(_, rest)| rest.split(',').next().is_some_and(|key| key.trim() == k))
-                };
-                match self.find_line(&["bib"], entry) {
-                    Some((rel, line)) => self.open_at(&rel, line),
-                    None => self.status = format!("No entry \"{k}\" in the project's .bib files"),
-                }
-            }
+            Link::Citation(k) => match self.find_in(&["bib"], |text| lf_ref::bib::parse(text).entry_line(&k)) {
+                Some((rel, line)) => self.open_at(&rel, line),
+                None => self.status = format!("No entry \"{k}\" in the project's .bib files"),
+            },
             Link::File(f) => {
                 let f = f.trim_start_matches("./");
                 let exts = ["", ".tex", ".bib", ".md", ".png", ".jpg", ".jpeg", ".pdf"];
@@ -903,6 +897,12 @@ impl App {
     /// First line (1-based) in a project file with one of `exts` for which
     /// `hit` is true. Open files are searched in their editor buffer.
     fn find_line(&self, exts: &[&str], hit: impl Fn(&str) -> bool) -> Option<(PathBuf, u32)> {
+        self.find_in(exts, |text| text.lines().position(&hit).map(|i| i + 1))
+    }
+
+    /// First project file (editor buffer or disk) with one of `exts` where `find` returns a
+    /// 1-based line.
+    fn find_in(&self, exts: &[&str], find: impl Fn(&str) -> Option<usize>) -> Option<(PathBuf, u32)> {
         let ws = self.ws.as_ref()?;
         for rel in &ws.files {
             if !rel.extension().and_then(|e| e.to_str()).is_some_and(|e| exts.contains(&e)) {
@@ -913,8 +913,8 @@ impl App {
                 _ => None,
             });
             let Some(text) = open.or_else(|| std::fs::read_to_string(ws.project.root.join(rel)).ok()) else { continue };
-            if let Some(i) = text.lines().position(&hit) {
-                return Some((rel.clone(), i as u32 + 1));
+            if let Some(line) = find(&text) {
+                return Some((rel.clone(), line as u32));
             }
         }
         None

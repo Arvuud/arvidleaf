@@ -563,7 +563,14 @@ Mittelbereich wie das Dashboard, die Menü- und Statusleiste bleiben.
 | Datenverlust in der zentralen Bibliothek | Atomares Speichern, Snapshots der `library.bib` über den vorhandenen History-Speicher |
 | Rate-Limits/Ausfälle der APIs | Klare Fehlermeldung, kein automatisches Wiederholen in Schleifen |
 
-### 15.8 Entscheidungen (24.11.2026)
+### 15.8 Stand IMPLEMENT-Phase
+
+| Meilenstein | Stand |
+|---|---|
+| RF1 Parser/Writer, LaTeX-Zeichen, Namen | erledigt (24.11.2026): 18 Tests, Roundtrip über den TeX-Live-Bestand (83 Dateien, 17 270 Einträge, 0,3 s). Die 2 dort gemeldeten Fehler sind echte Fehler in den Dateien (`frankenstein.bib`: unbalancierte Klammer, `publ-imp-test.bib`: fehlendes Komma). Biber-Gegenprobe: `~/Documents/arvidleaf/test/arvidref-rf1`. `lf_tex::outline::bib_keys` ersetzt. |
+| RF2–RF7 | offen |
+
+### 15.9 Entscheidungen (24.11.2026)
 
 Der Nutzer hat die offenen Fragen delegiert („Mach, was du für richtig hältst“). Entschieden wurde:
 

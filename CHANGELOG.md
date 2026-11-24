@@ -1,5 +1,19 @@
 # Changelog
 
+## Unveröffentlicht – arvidref (Literaturverwaltung), Meilenstein RF1
+
+- **Neue Crate `lf-ref`** (Grundlage für arvidref, siehe `reqs/plan.md` Abschnitt 15):
+  - BibLaTeX-Parser, der nichts verliert: Unveränderte Dateien werden Byte für Byte
+    zurückgeschrieben (geprüft an allen 83 `.bib`-Dateien von TeX Live, 17 270 Einträge,
+    13,7 MB in 0,3 s). Geänderte Einträge werden einzeln neu formatiert, der Rest bleibt unberührt.
+  - Fehlertolerant: Ein kaputter Eintrag wird mit Zeile und Grund gemeldet und als Text
+    erhalten. Die folgenden Einträge werden trotzdem gelesen. `@string`, `#`, `(…)`-Einträge,
+    `%`-Kommentare, `@comment`, `@preamble` und CRLF werden unterstützt.
+  - LaTeX ↔ Unicode (`M{\"u}ller` → Müller, `--` → –), Umschrift nach ASCII für Keys
+    (Müller → Mueller) und BibTeX-Namenslisten (`von Last, Jr, First`, `and others`).
+- `\cite`-Vervollständigung und Strg+Klick auf einen Zitier-Key nutzen den neuen Parser.
+  Keys in `@comment` oder in kaputten Einträgen werden nicht mehr vorgeschlagen.
+
 ## Unveröffentlicht – Installation auf Linux, Windows und macOS
 
 - **Klammer-Paare und Vorschlagsauswahl unter KDE Wayland repariert:** winit schickte nach

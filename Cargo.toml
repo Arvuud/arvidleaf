@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/lf-md", "crates/lf-tex", "crates/lf-pdf", "crates/lf-core", "crates/lf-gui", "crates/arvidleaf"]
+members = ["crates/lf-md", "crates/lf-ref", "crates/lf-tex", "crates/lf-pdf", "crates/lf-core", "crates/lf-gui", "crates/arvidleaf"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,6 +9,7 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 lf-md = { path = "crates/lf-md" }
+lf-ref = { path = "crates/lf-ref" }
 lf-tex = { path = "crates/lf-tex" }
 lf-pdf = { path = "crates/lf-pdf" }
 lf-core = { path = "crates/lf-core" }

@@ -166,36 +166,6 @@ pub fn labels(src: &str) -> Vec<String> {
     out
 }
 
-/// Entry keys of a `.bib` file (`@article{key,`).
-pub fn bib_keys(src: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let b = src.as_bytes();
-    let mut i = 0;
-    while let Some(p) = src[i..].find('@') {
-        let at = i + p + 1;
-        let mut j = at;
-        while j < b.len() && b[j].is_ascii_alphabetic() {
-            j += 1;
-        }
-        let kind = src[at..j].to_ascii_lowercase();
-        while j < b.len() && b[j] == b' ' {
-            j += 1;
-        }
-        if j < b.len() && (b[j] == b'{' || b[j] == b'(') && !matches!(kind.as_str(), "comment" | "string" | "preamble" | "") {
-            let ks = j + 1;
-            let ke = src[ks..].find([',', '\n', '}']).map_or(src.len(), |e| ks + e);
-            let key = src[ks..ke].trim();
-            if !key.is_empty() {
-                out.push(key.to_string());
-            }
-            i = ke;
-        } else {
-            i = j.max(at);
-        }
-    }
-    out
-}
-
 /// Resolves an include as TeX would (`chapters/intro` → `chapters/intro.tex`).
 pub fn resolve_include(root: &Path, name: &str) -> Option<PathBuf> {
     let p = PathBuf::from(name);
@@ -251,8 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn bib_and_includes() {
-        assert_eq!(bib_keys("@article{knuth84,\n title={x}}\n@comment{no}\n@Book{lamport, }"), vec!["knuth84", "lamport"]);
+    fn includes_with_lines() {
         assert_eq!(includes("\\input{a}\n%\\input{b}\n\\include{ch/c}"), vec![("a".to_string(), 1), ("ch/c".to_string(), 3)]);
     }
 

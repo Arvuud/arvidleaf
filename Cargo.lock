@@ -1189,6 +1189,7 @@ dependencies = [
  "image",
  "lf-core",
  "lf-pdf",
+ "lf-ref",
  "lf-tex",
  "rfd",
 ]
@@ -1202,6 +1203,10 @@ dependencies = [
 
 [[package]]
 name = "lf-pdf"
+version = "0.1.0"
+
+[[package]]
+name = "lf-ref"
 version = "0.1.0"
 
 [[package]]
