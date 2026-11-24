@@ -31,7 +31,7 @@ arvidleaf ist ein **lokaler LaTeX-Editor als Desktop-App**, im Funktionsumfang a
 | **Should** | SyncTeX (Klick im PDF springt zur Quelle, Button springt von der Quelle ins PDF), Auto-Compile beim Speichern, Dokument-Outline, Autovervollständigung (Befehle, Umgebungen, `\ref`/`\label`, `\cite`-Keys), Suchen & Ersetzen (inkl. projektweit), ZIP-Import und -Export, Hinweis bei fehlenden Paketen |
 | **Must (Prototyp)** | Lokale Versionshistorie (Snapshots mit Diff und Wiederherstellen) |
 | **Could** | Rechtschreibprüfung, Symbol-Palette, Code-Folding, Vim-Keybindings |
-| **Später** | Echtzeit-Kollaboration, visueller Editor, KI-Fehlererklärung, Zotero-Anbindung |
+| **Später** | Echtzeit-Kollaboration, visueller Editor, KI-Fehlererklärung, Zotero-Anbindung (→ ersetzt durch arvidref, Abschnitt 15) |
 
 ### 1.3 Nicht-funktionale Anforderungen
 - **UI blockiert nie:** Kompilierung, PDF-Rendering und Dateisuche laufen in Worker-Threads, wie der Interpreter-Thread in arvidlab.
@@ -407,3 +407,174 @@ Entscheidungen:
   Geprüft per `cargo check --target x86_64-pc-windows-gnu` und `aarch64-apple-darwin`.
 - **CLI:** `--compile <datei.md|datei.tex>`, PDF daneben oder per `-o`.
 - **Offen:** Test auf echten Windows- und macOS-Rechnern.
+
+---
+
+## 15. PLAN: arvidref – Literaturverwaltung in arvidleaf (Entwurf 24.11.2026, Entscheidungen 15.8 getroffen)
+
+**Ziel:** Quellen verwalten wie mit Zotero, aber direkt im Editor. Eine Quelle wird per DOI geholt,
+mit einem Kürzel zitiert und landet automatisch in der `.bib` des Projekts. Den Programmwechsel
+und das Kopieren von BibTeX gibt es dann nicht mehr.
+
+**Bewusst nicht im Umfang** (das, was Zotero groß macht):
+- **Seiten-Übersetzer und Browser-Connector:** Tausende Scraper, eine Daueraufgabe. Ersatz: Import per Kennung (DOI, arXiv, ISBN).
+- **Cloud-Sync und Gruppen:** R1 (lokal). Wer synchronisieren will, legt die Bibliothek in einen eigenen Sync- oder git-Ordner.
+- **Word/LibreOffice-Plugins und CSL-Formatierung:** Bei LaTeX formatiert biblatex/biber.
+
+### 15.1 Anforderungen
+
+| # | Anforderung | Umsetzung (Kurzfassung) |
+|---|---|---|
+| Q1 | **Eine zentrale Bibliothek** für alle Projekte | `<data_dir>/arvidref/library.bib` (über `lf_core::paths::data_dir()`), Ort in den Settings änderbar |
+| Q2 | **Offenes Format** | Die Bibliothek *ist* eine BibLaTeX-Datei. Lesbar, mit git versionierbar, mit JabRef/Zotero austauschbar |
+| Q3 | **Zitieren aus dem Editor** | Zitier-Dialog (Strg+Umschalt+C) und `\cite`-Completion über die Bibliothek. Der Eintrag wird in die Projekt-`.bib` übernommen |
+| Q4 | **Import per Kennung (online)** | DOI, arXiv-ID, ISBN; Netz nur bei diesem Schritt (vom Nutzer freigegeben 24.11.2026) |
+| Q5 | **Import offline** | BibTeX/BibLaTeX einfügen oder Datei öffnen, CSL-JSON (Zotero-Export), PDF per Drag & Drop (DOI aus dem Text) |
+| Q6 | **PDF-Anhänge** | Pro Eintrag beliebig viele Dateien, Öffnen im eingebauten PDF-Viewer |
+| Q7 | **Ordnen** | Tags, Sammlungen, Volltextsuche über Autor/Titel/Jahr/Key/Journal/Notiz |
+| Q8 | **Später eigenständig** | Eigene Crate ohne GUI-Abhängigkeit, damit ein `arvidref`-Programm ohne Umbau möglich ist |
+
+### 15.2 Architektur
+
+Neue Crate **`lf-ref`** (keine egui-Abhängigkeit):
+
+```
+crates/lf-ref/src/
+├── bib/
+│   ├── parse.rs       BibLaTeX-Parser mit Byte-Spannen je Eintrag (verlustfreies Zurückschreiben)
+│   ├── write.rs       Formatierer für neue/geänderte Einträge
+│   └── latex.rs       {\"a} ↔ ä, --, ~ … für Anzeige und Suche
+├── model.rs           Entry { key, kind, fields: IndexMap }, Person-Namen (von/Last/Jr/First)
+├── library.rs         Laden, Speichern (atomar: tmp + rename), Index, Suche, Dubletten
+├── key.rs             Key-Erzeugung und Konfliktauflösung
+├── import/
+│   ├── doi.rs         doi.org mit Content-Negotiation → CSL-JSON
+│   ├── arxiv.rs       export.arxiv.org Atom-API
+│   ├── isbn.rs        OpenLibrary
+│   ├── csl.rs         CSL-JSON → Entry (auch für Zotero-Exporte)
+│   └── pdf.rs         pdftotext (Seite 1–2) → DOI/arXiv-ID per Regex
+└── project.rs         Projekt-.bib finden, Einträge übernehmen/abgleichen
+```
+
+`lf-gui` bekommt `refs_ui.rs` (Bibliotheksansicht, Zitier-Dialog). `lf-tex::outline::bib_keys`
+wird durch den neuen Parser ersetzt, damit Projekt und Bibliothek dieselbe Logik nutzen.
+
+**Netz:** `ureq` (synchron, rustls, MIT/Apache) in einem Worker-Thread wie der Compile-Runner,
+Timeout 10 s, Abbrechen möglich. User-Agent `arvidleaf/<version>` **ohne E-Mail-Adresse**
+(Crossrefs „polite pool“ wünscht eine; optional in den Settings eintragbar, Standard leer).
+Ohne Netz funktioniert alles außer Q4. Der Fehler wird klar angezeigt („Offline – DOI-Import nicht möglich“).
+
+**Warum CSL-JSON per doi.org:** Ein Aufruf mit `Accept: application/vnd.citationstyles.csl+json`
+deckt Crossref, DataCite (Datensätze, Zenodo) und mEDRA ab. Die Umsetzung in BibLaTeX liegt
+bei uns, statt das oft fehlerhafte BibTeX der Anbieter zu übernehmen (z. B. Titel in Großbuchstaben, `&amp;`).
+
+### 15.3 Datenmodell und Speicherung
+
+```
+<data_dir>/arvidref/
+├── library.bib            alle Einträge (Quelle der Wahrheit)
+├── collections.toml       Sammlungen: Name → Liste von Keys (Bäume über "Eltern/Kind")
+└── files/<key>/…pdf       Anhänge (kopiert, nicht verlinkt)
+```
+
+- **Tags** im Standardfeld `keywords`, **Anhänge** im Feld `file` (Format wie JabRef/Better BibTeX).
+  **Notizen** in `annotation`. **Zeitstempel** in `x-arvidref-added`/`x-arvidref-modified`
+  (biber ignoriert unbekannte Felder).
+- **Verlustfrei:** Unveränderte Einträge werden Byte für Byte zurückgeschrieben. Kommentare,
+  `@string`, `@preamble` und die Reihenfolge bleiben erhalten. Damit erzeugt die Bibliothek
+  unter git nur echte Diffs.
+- **Key-Schema** (Standard, in den Settings änderbar): `<nachname><jahr><erstes Titelwort>`,
+  kleingeschrieben, ASCII (`müller2021neuronale`). Bei Konflikten werden `a`, `b` … angehängt.
+  Stoppwörter (the, a, der, die, …) werden übersprungen.
+- **Dubletten:** gleiche DOI, gleiche arXiv-ID oder (normalisierter Titel + Jahr). Beim Import gibt es den Hinweis
+  „Already in library as `knuth1984texbook`“ statt eines zweiten Eintrags.
+- Änderungen von außen (Editor, git pull) werden über `notify` erkannt und neu geladen.
+
+### 15.4 Zitieren im Projekt
+
+- **Projekt-`.bib`:** Gemeint ist die erste Datei aus `\addbibresource`/`\bibliography` bzw. `bibliography:` im
+  Markdown-Front-Matter. Gibt es keine, wird beim ersten Zitat `refs.bib` angelegt. Dann folgt eine
+  Frage, ob `\addbibresource{refs.bib}` + `\printbibliography` eingefügt werden soll.
+- **Einträge werden kopiert, nicht verlinkt.** Das Projekt bleibt eigenständig (ZIP-Export,
+  Overleaf, Koautoren) und kompiliert ohne die Bibliothek.
+- **Zitier-Dialog** (Strg+Umschalt+C, auch Menü *Insert → Citation…*): unscharfe Suche, Liste mit
+  Autor · Jahr · Titel · Journal, Mehrfachauswahl. Enter fügt `\cite{a,b}` ein, im Markdown `[@a; @b]`.
+  Steht der Cursor in einem bestehenden `\cite{…}`, werden die Keys dort ergänzt. Der Befehl
+  (`\cite`, `\parencite`, `\textcite`, `\autocite`) ist im Dialog wählbar und wird pro Projekt gemerkt.
+- **Completion:** In `\cite{` erscheinen zuerst die Projekt-Keys, darunter die Bibliotheks-Keys
+  (markiert „library“). Die Auswahl eines Bibliotheks-Keys übernimmt den Eintrag ins Projekt.
+- **Hover** über einem Key zeigt Autor, Jahr und Titel. Der bestehende Strg+Klick-Sprung zur `.bib` bleibt.
+- **Nach dem Kompilieren:** Bei „Citation `x` undefined“ zeigt das Log-Panel einen Knopf
+  „Add from library“, wenn `x` in der Bibliothek existiert.
+- **Abgleich** (*References → Sync project .bib*): Projekt-Einträge, die in der Bibliothek geändert
+  wurden, werden als Diff angezeigt (vorhandene Diff-Ansicht der History) und auf Wunsch übernommen.
+  Umgekehrt lassen sich Einträge, die nur im Projekt stehen, in die Bibliothek übernehmen.
+
+### 15.5 GUI
+
+Eigene Ansicht **References** (Menü *View → References*, Strg+Umschalt+R). Sie ersetzt den
+Mittelbereich wie das Dashboard, die Menü- und Statusleiste bleiben.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 🍃 arvidleaf  File Edit View References …   [ 10.1145/359545.359563   ⏎ Add ] │
+├──────────────┬───────────────────────────────────────┬──────────────────────┤
+│ LIBRARY  412 │ 🔍 knuth                                │ Article              │
+│ ▾ Thesis     │ Author        Year  Title               │ Key   knuth1984lit…  │
+│    Kapitel 2 │ Knuth, D. E.  1984  Literate Programm…  │ Title Literate Pro…  │
+│ ▸ Lehre      │ Knuth, D. E.  1986  The TeXbook       📎│ Author Knuth, Don…   │
+│ Unfiled   37 │ Lamport, L.   1994  LaTeX: A Document…  │ Year  1984           │
+│──────────────│                                        │ DOI   10.1093/…  ↗   │
+│ TAGS         │                                        │ ── Files ──          │
+│ #ml #survey  │                                        │ 📎 knuth1984.pdf     │
+│              │                                        │ [Cite] [Copy BibTeX] │
+├──────────────┴───────────────────────────────────────┴──────────────────────┤
+│ ● 412 entries · library.bib                       Imported 1 entry (Crossref) │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+- Spalten sortierbar, Tabelle virtualisiert (nur sichtbare Zeilen), auch für 10 000 Einträge flüssig.
+- Detailansicht: Felder je nach Eintragstyp (Pflichtfelder hervorgehoben), Rohansicht als BibLaTeX
+  mit dem vorhandenen Highlighter umschaltbar. Änderungen speichern sofort (Auto-Save wie im Editor).
+- Das Eingabefeld oben erkennt DOI (auch als URL `https://doi.org/…`), arXiv-ID/-URL und ISBN.
+  Eingefügtes BibTeX wird direkt importiert. Drag & Drop von PDFs oder `.bib`/`.json`-Dateien auf die Ansicht importiert sie.
+- Kontextmenü: Cite, Copy key, Copy BibTeX, Open PDF, Open DOI, Add to collection, Delete
+  (mit Rückgängig über einen Snapshot der `library.bib`, analog zur Versionshistorie).
+- Stil: Palette und Abstände aus `theme.rs`, UI-Sprache Englisch.
+
+### 15.6 Meilensteine
+
+| | Inhalt | Test |
+|---|---|---|
+| RF1 | `lf-ref`: Parser/Writer, Modell, LaTeX-Zeichen, Namen | Roundtrip: echte `.bib`-Dateien (TeX-Live-`biblatex-examples.bib`, Zotero/BBT-Export, unsaubere Dateien mit `@string`, `#`, verschachtelten Klammern, `(…)`-Einträgen) bleiben Byte für Byte gleich |
+| RF2 | Bibliothek: Laden/Speichern atomar, Index, Suche, Keys, Dubletten, Sammlungen | Unit-Tests, 10 000 Einträge laden + suchen < 100 ms |
+| RF3 | Import: BibTeX, CSL-JSON, PDF (pdftotext), DOI/arXiv/ISBN online | Offline-Fixtures (gespeicherte Antworten) für die Umsetzung; ein mit `#[ignore]` markierter Online-Test gegen echte DOIs |
+| RF4 | GUI: References-Ansicht, Detail-Editor, Drag & Drop, Anhänge im PDF-Viewer | Offscreen-Screenshots dark/light |
+| RF5 | Editor-Integration: Zitier-Dialog, Completion, Hover, Übernahme in Projekt-`.bib`, „Add from library“ im Log | Testprojekt in `~/Documents/arvidleaf/test`: zitieren → kompilieren → Literaturverzeichnis enthält die Einträge (biber) |
+| RF6 | Abgleich Projekt ↔ Bibliothek, README, CHANGELOG | Diff-Fälle: geändert, nur Projekt, nur Bibliothek, Key-Konflikt |
+
+### 15.7 Risiken
+
+| Risiko | Gegenmaßnahme |
+|---|---|
+| `.bib`-Dateien aus der Praxis sind unsauber | Fehlertoleranter Parser: Ein kaputter Eintrag wird als Rohtext erhalten und markiert, der Rest lädt. Fixture-Sammlung. |
+| Metadaten der Anbieter sind lückenhaft oder falsch | Vor dem Speichern Vorschau mit editierbaren Feldern. Fehlende Pflichtfelder werden markiert. |
+| Gleichzeitige Änderung durch arvidleaf und externen Editor | `notify`, beim Speichern Prüfung der Änderungszeit, bei Konflikt Nachfrage statt Überschreiben |
+| Datenverlust in der zentralen Bibliothek | Atomares Speichern, Snapshots der `library.bib` über den vorhandenen History-Speicher |
+| Rate-Limits/Ausfälle der APIs | Klare Fehlermeldung, kein automatisches Wiederholen in Schleifen |
+
+### 15.8 Entscheidungen (24.11.2026)
+
+Der Nutzer hat die offenen Fragen delegiert („Mach, was du für richtig hältst“). Entschieden wurde:
+
+| Frage | Entscheidung | Begründung |
+|---|---|---|
+| Projekt-`.bib` | **Einträge werden ins Projekt kopiert**, kein Verweis auf die zentrale Bibliothek | Projekte bleiben eigenständig (ZIP-Export, Overleaf, Koautoren). Aktualität über *Sync project .bib* (15.4). |
+| Key-Schema | **`müller2021neuronale` → `mueller2021neuronale`** (Nachname + Jahr + erstes Titelwort, klein, ASCII, Umlaute als ae/oe/ue/ss). In den Settings als Muster änderbar | Kollidiert seltener als `Mueller2021`, bleibt lesbar. Die Umschrift von ä zu ae entspricht Better BibTeX. |
+| Ansicht | **Eigene Vollansicht** wie das Dashboard, dazu der Zitier-Dialog als Overlay im Editor | Tabelle und Detailansicht brauchen Breite. Zum Zitieren muss die Ansicht nicht gewechselt werden. |
+| Zotero-Bestand | **Import über Zotero-Export** (BibTeX/BBT oder CSL-JSON) in RF3. Ein direkter Import aus `zotero.sqlite` (mit PDFs und Sammlungen) folgt als **RF7, nach RF1–RF6** | Das Schema von `zotero.sqlite` ändert sich zwischen Versionen. Der Export reicht für den Umstieg. |
+| PDF-Annotationen | **Später**, nicht in RF1–RF6 | Braucht Text-/Koordinatenauswahl im PDF-Viewer, ein eigenes Projekt. Notizen pro Eintrag (`annotation`) gibt es ab RF4. |
+
+| | Inhalt | Test |
+|---|---|---|
+| RF7 (nach RF6) | Import direkt aus `zotero.sqlite` (nur lesend, Kopie der DB), Sammlungen und PDF-Anhänge | Fixture-DB aus einer Test-Zotero-Installation |
