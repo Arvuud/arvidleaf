@@ -164,10 +164,31 @@ fn push_and_remove() {
     let parsed = bib::parse(&b.to_bib_string());
     assert_eq!(parsed.entry("b").unwrap(), &e);
     assert_eq!(b.remove_entry("a").unwrap().key, "a");
-    assert_eq!(b.to_bib_string(), "\n@article{b,\n  title = {B},\n  year = 2020,\n}\n");
+    assert_eq!(b.to_bib_string(), "@article{b,\n  title = {B},\n  year = 2020,\n}\n");
     let mut empty = bib::parse("");
     empty.push_entry(bib::Entry::new("misc", "x"));
     assert_eq!(empty.to_bib_string(), "@misc{x,\n}\n");
+}
+
+#[test]
+fn removing_keeps_spacing() {
+    let src = "% head\n\n@misc{a, t={1}}\n\n@misc{b, t={2}}  % note\n\n@misc{c, t={3}}\n";
+    let cases = [
+        ("a", "% head\n\n@misc{b, t={2}}  % note\n\n@misc{c, t={3}}\n"),
+        ("b", "% head\n\n@misc{a, t={1}}\n\n@misc{c, t={3}}\n"),
+        ("c", "% head\n\n@misc{a, t={1}}\n\n@misc{b, t={2}}  % note\n"),
+    ];
+    for (key, want) in cases {
+        let mut b = bib::parse(src);
+        b.remove_entry(key).unwrap();
+        assert_eq!(b.to_bib_string(), want, "removing {key}");
+    }
+    let mut b = bib::parse("@misc{a,t={1}}\r\n\r\n@misc{b,t={2}}\r\n");
+    b.remove_entry("a");
+    assert_eq!(b.to_bib_string(), "@misc{b,t={2}}\r\n");
+    let mut b = bib::parse("@misc{only,t={1}}");
+    b.remove_entry("only");
+    assert_eq!(b.to_bib_string(), "");
 }
 
 #[test]

@@ -568,7 +568,8 @@ Mittelbereich wie das Dashboard, die Menü- und Statusleiste bleiben.
 | Meilenstein | Stand |
 |---|---|
 | RF1 Parser/Writer, LaTeX-Zeichen, Namen | erledigt (24.11.2026): 18 Tests, Roundtrip über den TeX-Live-Bestand (83 Dateien, 17 270 Einträge, 0,3 s). Die 2 dort gemeldeten Fehler sind echte Fehler in den Dateien (`frankenstein.bib`: unbalancierte Klammer, `publ-imp-test.bib`: fehlendes Komma). Biber-Gegenprobe: `~/Documents/arvidleaf/test/arvidref-rf1`. `lf_tex::outline::bib_keys` ersetzt. |
-| RF2–RF7 | offen |
+| RF2 Bibliothek | erledigt (25.11.2026): atomares Speichern mit Konflikterkennung, tägliche Sicherung, Suche, Dubletten (DOI/arXiv/Titel+Jahr), Keys nach Muster, Tags, Sammlungen. 10 000 Einträge öffnen in 72 ms (Release, Index auf mehreren Threads), Suche < 15 ms. Nicht in RF2: Beobachten per `notify` (kommt mit der GUI in RF4, `changed_on_disk()` ist vorbereitet), Ort der Bibliothek in den Settings (RF4). |
+| RF3–RF7 | offen |
 
 ### 15.9 Entscheidungen (24.11.2026)
 

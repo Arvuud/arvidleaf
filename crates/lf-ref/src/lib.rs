@@ -7,9 +7,16 @@
 //!   byte for byte; broken entries are kept as raw text instead of failing the file)
 //! - [`latex`]: LaTeX ↔ Unicode for display, search and writing
 //! - [`names`]: BibTeX name lists (`von Last, Jr, First`)
+//! - [`library`]: the central library (`library.bib`), search, duplicates, tags
+//! - [`collections`]: named, nested groups of entries
+//! - [`key`]: citation keys from a pattern
 
 pub mod bib;
+pub mod collections;
+pub mod key;
 pub mod latex;
+pub mod library;
 pub mod names;
 
 pub use bib::{Bib, Block, Entry, Field, Kind, Piece, Value};
+pub use library::{EntryView, Library};

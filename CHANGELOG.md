@@ -1,7 +1,21 @@
 # Changelog
 
-## Unveröffentlicht – arvidref (Literaturverwaltung), Meilenstein RF1
+## Unveröffentlicht – arvidref (Literaturverwaltung), Meilensteine RF1–RF2
 
+- **Zentrale Bibliothek** (`lf_ref::Library`, RF2): `library.bib` plus `collections.toml`
+  und `files/<key>/` für Anhänge.
+  - Speichern ist atomar. Hat ein anderes Programm die Datei inzwischen geändert, wird sie
+    nicht überschrieben, sondern ein Konflikt gemeldet. Vor dem ersten Speichern des Tages
+    entsteht eine Sicherung in `backups/`, die letzten 30 bleiben erhalten.
+  - Suche über Key, Autoren und Herausgeber, Jahr, Titel, Zeitschrift, Tags, Notizen und DOI.
+    Groß-/Kleinschreibung und Akzente zählen nicht (`muller` und `mueller` finden Müller),
+    dazu `tag:` und `type:` als Filter. 10 000 Einträge: Öffnen 72 ms, Suchen < 15 ms (Release).
+  - Dubletten über DOI (in jeder Schreibweise), arXiv-ID (eprint, DOI oder URL, ohne Version)
+    oder Titel + Jahr.
+  - Keys nach Muster, Standard `[auth][year][title]` (`mueller2021neuronale`), bei Konflikten
+    mit `a`, `b` … Wird ein Key geändert, ziehen Sammlungen und Anhang-Ordner mit.
+  - Tags im Feld `keywords`, verschachtelte Sammlungen (`Thesis/Kapitel 2`).
+- Beim Löschen eines Eintrags bleibt der Abstand zwischen den übrigen Einträgen erhalten.
 - **Neue Crate `lf-ref`** (Grundlage für arvidref, siehe `reqs/plan.md` Abschnitt 15):
   - BibLaTeX-Parser, der nichts verliert: Unveränderte Dateien werden Byte für Byte
     zurückgeschrieben (geprüft an allen 83 `.bib`-Dateien von TeX Live, 17 270 Einträge,

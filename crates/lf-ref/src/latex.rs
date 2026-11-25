@@ -106,6 +106,10 @@ const SYMBOLS: &[(&str, &str)] = &[
 /// characters, formatting commands (`\emph`, `\textbf`, `{\em …}`, …) keep only their text,
 /// unknown commands are dropped. Math (`$…$`) is kept as written. Whitespace is collapsed.
 pub fn decode(src: &str) -> String {
+    // fast path: nothing to translate
+    if !src.bytes().any(|b| matches!(b, b'\\' | b'{' | b'}' | b'$' | b'-' | b'`' | b'\'' | b'~')) {
+        return collapse_ws(src);
+    }
     let chars: Vec<char> = src.chars().collect();
     let mut out = String::with_capacity(src.len());
     decode_into(&chars, &mut out);
@@ -282,12 +286,25 @@ fn accent_arg(c: &[char], j: usize) -> (Vec<char>, usize) {
     }
 }
 
+/// Pairs `(base, accented)` of an accent table, without allocating.
+fn pairs(table: &str) -> impl Iterator<Item = (char, char)> + '_ {
+    let mut it = table.chars();
+    std::iter::from_fn(move || Some((it.next()?, it.next()?)))
+}
+
 fn lookup_pair(table: &str, base: char) -> Option<char> {
-    let v: Vec<char> = table.chars().collect();
-    v.chunks(2).find(|p| p[0] == base).map(|p| p[1])
+    pairs(table).find(|p| p.0 == base).map(|p| p.1)
 }
 
 fn collapse_ws(s: &str) -> String {
+    let b = s.as_bytes();
+    let clean = !b.first().is_some_and(u8::is_ascii_whitespace)
+        && !b.last().is_some_and(u8::is_ascii_whitespace)
+        && !b.windows(2).any(|w| w[0].is_ascii_whitespace() && (w[1].is_ascii_whitespace() || w[0] != b' '))
+        && !s.chars().any(|c| !c.is_ascii() && c.is_whitespace());
+    if clean {
+        return s.to_string();
+    }
     let mut out = String::with_capacity(s.len());
     let mut space = false;
     for ch in s.chars() {
@@ -327,6 +344,19 @@ pub fn encode(text: &str) -> String {
 /// Unicode → ASCII: German umlauts as `ae oe ue ss`, other letters without accents,
 /// characters without an ASCII form are dropped.
 pub fn fold_ascii(text: &str) -> String {
+    fold(text, true)
+}
+
+/// Like [`fold_ascii`], but every accented letter becomes its base letter (`ü` → `u`).
+/// Used for search, so `muller` and `mueller` both find `Müller`.
+pub fn strip_accents(text: &str) -> String {
+    fold(text, false)
+}
+
+fn fold(text: &str, german: bool) -> String {
+    if text.is_ascii() {
+        return text.to_string();
+    }
     let mut out = String::with_capacity(text.len());
     for ch in text.chars() {
         if ch.is_ascii() {
@@ -334,12 +364,12 @@ pub fn fold_ascii(text: &str) -> String {
             continue;
         }
         let s: &str = match ch {
-            'ä' => "ae",
-            'ö' => "oe",
-            'ü' => "ue",
-            'Ä' => "Ae",
-            'Ö' => "Oe",
-            'Ü' => "Ue",
+            'ä' if german => "ae",
+            'ö' if german => "oe",
+            'ü' if german => "ue",
+            'Ä' if german => "Ae",
+            'Ö' if german => "Oe",
+            'Ü' if german => "Ue",
             'ß' => "ss",
             'ẞ' => "SS",
             'æ' => "ae",
@@ -383,13 +413,7 @@ fn base_letter(c: char) -> Option<char> {
     if ('\u{300}'..='\u{36f}').contains(&c) {
         return None; // combining mark: drop
     }
-    for (_, _, table) in ACCENTS {
-        let v: Vec<char> = table.chars().collect();
-        if let Some(p) = v.chunks(2).find(|p| p[1] == c) {
-            return Some(p[0]);
-        }
-    }
-    None
+    ACCENTS.iter().find_map(|(_, _, table)| pairs(table).find(|p| p.1 == c).map(|p| p.0))
 }
 
 #[cfg(test)]
@@ -454,5 +478,6 @@ mod tests {
         assert_eq!(fold_ascii("François Hočevar ñ"), "Francois Hocevar n");
         assert_eq!(fold_ascii("s\u{323}"), "s");
         assert_eq!(fold_ascii("日本"), "");
+        assert_eq!(strip_accents("Müller Straße Ångström"), "Muller Strasse Angstrom");
     }
 }

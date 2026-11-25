@@ -76,6 +76,12 @@ pub enum Piece {
     Macro(String),
 }
 
+/// Strips spaces/tabs and one line break from the start (only if the line is blank).
+fn strip_line_end(s: &str) -> &str {
+    let t = s.trim_start_matches([' ', '\t']);
+    t.strip_prefix("\r\n").or_else(|| t.strip_prefix('\n')).unwrap_or(if t.is_empty() { t } else { s })
+}
+
 /// The month macros predefined by BibTeX and biber.
 const MONTHS: [(&str, &str); 12] = [
     ("jan", "1"),
@@ -254,17 +260,42 @@ impl Bib {
         self.blocks.push(Block { raw: Some("\n".to_string()), line: 0, kind: Kind::Text });
     }
 
-    /// Removes the entry with this key together with the blank line after it.
+    /// Removes the entry with this key. The rest of its line goes too, and so does one blank
+    /// line, so the remaining entries keep their spacing.
     pub fn remove_entry(&mut self, key: &str) -> Option<Entry> {
         let i = self.find(key)?;
         let b = self.blocks.remove(i);
-        if let Some(next) = self.blocks.get_mut(i)
-            && next.kind == Kind::Text
-            && let Some(r) = &mut next.raw
+        // merge the text blocks that followed the entry into one
+        let mut after = String::new();
+        while i < self.blocks.len() && self.blocks[i].kind == Kind::Text {
+            after.push_str(self.blocks.remove(i).raw.as_deref().unwrap_or(""));
+        }
+        let before_blank = match i.checked_sub(1).map(|p| &self.blocks[p]) {
+            None => true,
+            Some(Block { kind: Kind::Text, raw: Some(r), .. }) => r.ends_with("\n\n") || r.ends_with("\n\r\n") || r.trim().is_empty(),
+            Some(_) => false,
+        };
+        // the rest of the entry's line (spaces, a trailing `% comment`)
+        let mut rest = after.find('\n').map_or("", |p| &after[p + 1..]);
+        if before_blank {
+            rest = strip_line_end(rest);
+        }
+        let rest = rest.to_string();
+        if !rest.is_empty() {
+            self.blocks.insert(i, Block { raw: Some(rest), line: 0, kind: Kind::Text });
+        } else if i == self.blocks.len()
+            && let Some(Block { kind: Kind::Text, raw: Some(r), .. }) = self.blocks.last_mut()
         {
-            let trimmed = r.trim_start_matches([' ', '\t']);
-            let trimmed = trimmed.strip_prefix("\r\n").or_else(|| trimmed.strip_prefix('\n')).unwrap_or(trimmed);
-            *r = trimmed.to_string();
+            // entry was the last one: leave a single line break at the end
+            while r.ends_with("\n\n") || r.ends_with("\n\r\n") {
+                let cut = if r.ends_with("\r\n") { 2 } else { 1 };
+                r.truncate(r.len() - cut);
+            }
+        }
+        if let Some(Block { kind: Kind::Text, raw: Some(r), .. }) = self.blocks.get(i)
+            && r.is_empty()
+        {
+            self.blocks.remove(i);
         }
         if let Kind::Entry(e) = b.kind { Some(e) } else { None }
     }

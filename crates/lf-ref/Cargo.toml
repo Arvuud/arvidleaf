@@ -6,3 +6,5 @@ license.workspace = true
 description = "arvidref: reference library (BibLaTeX parser/writer, names, LaTeX characters)"
 
 [dependencies]
+serde.workspace = true
+toml.workspace = true
