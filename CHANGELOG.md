@@ -1,6 +1,24 @@
 # Changelog
 
-## Unveröffentlicht – arvidref (Literaturverwaltung), Meilensteine RF1–RF2
+## Unveröffentlicht – arvidref (Literaturverwaltung), Meilensteine RF1–RF3
+
+- **Import** (`lf_ref::import`, RF3):
+  - Einfügen oder Datei: BibTeX/BibLaTeX (`@string`-Makros der Quelle werden aufgelöst),
+    CSL-JSON (Zotero-Export „CSL JSON“, Keys von Better BibTeX bleiben erhalten) oder eine
+    Liste von Kennungen. Dubletten werden übersprungen und gemeldet.
+  - Erkennung von DOI (auch als Link oder `doi:`), arXiv-ID (auch als Link, `arXiv:` oder
+    arXiv-DOI) und ISBN-10/13 mit Prüfziffer.
+  - Online auf Anfrage: DOI über doi.org (Crossref, DataCite, mEDRA), arXiv über die arXiv-API.
+    Hat ein Preprint eine Zeitschriften-DOI, wird der Zeitschrifteneintrag übernommen und um
+    die eprint-Felder ergänzt. ISBN über OpenLibrary, sonst über Crossref.
+  - Netzzugriff über das Programm `curl`: kein TLS im Build, abbrechbar, mit Wiederholung bei
+    Verbindungsabbrüchen. Gesendet wird nur die Kennung, der User-Agent enthält keine Adresse.
+  - PDF: Die DOI oder arXiv-ID wird aus den Metadaten oder der ersten Seite gelesen (`pdftotext`).
+  - HTML/JATS in Metadaten wird zu LaTeX (`<i>` → `\emph`, `<sub>` → `\textsubscript`).
+    Wörter mit Großbuchstaben im Inneren (`LaTeX`, `DNA`) werden mit Klammern geschützt.
+  - Gegenprobe: 14 importierte Einträge kompilieren mit biber ohne Warnung
+    (`~/Documents/arvidleaf/test/arvidref-rf3`).
+- Die Werkzeugübersicht zeigt jetzt auch `curl` und `pdftotext`.
 
 - **Zentrale Bibliothek** (`lf_ref::Library`, RF2): `library.bib` plus `collections.toml`
   und `files/<key>/` für Anhänge.

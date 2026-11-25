@@ -7,4 +7,5 @@ description = "arvidref: reference library (BibLaTeX parser/writer, names, LaTeX
 
 [dependencies]
 serde.workspace = true
+serde_json.workspace = true
 toml.workspace = true

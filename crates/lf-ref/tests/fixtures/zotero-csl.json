@@ -1,0 +1,5 @@
+[
+  {"id":"lamportLaTeXDocumentPreparation1994","type":"book","title":"LaTeX: a document preparation system","publisher":"Addison-Wesley","publisher-place":"Reading, Mass","edition":"2","ISBN":"978-0-201-52983-8","language":"en","author":[{"family":"Lamport","given":"Leslie"}],"issued":{"date-parts":[["1994"]]}},
+  {"id":"http://zotero.org/users/1/items/ABCD","type":"article-journal","title":"Über <i>Drosophila</i> &amp; Co.","container-title":"Zeitschrift für Biologie","volume":"12","issue":"3","page":"100-120","author":[{"family":"Müller","given":"Jürgen"},{"family":"Waals","given":"Johannes","non-dropping-particle":"van der"},{"literal":"Max Planck Society"}],"issued":{"date-parts":[[2020,5,17]]},"accessed":{"date-parts":[[2026,11,1]]},"URL":"https://example.org/article","keyword":"genetics, flies"},
+  {"id":"web1","type":"webpage","title":"The arvidleaf manual","container-title":"arvidleaf docs","URL":"https://example.org/manual","issued":{"raw":"2026-11"}}
+]
