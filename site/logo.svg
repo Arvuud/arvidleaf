@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="arvidleaf">
+<title>arvidleaf</title>
+<!-- leaf in the teal shades of the arvidlab mark: tip top-right, stem bottom-left -->
+<g stroke-linejoin="round">
+  <path d="M120 392 C 110 250, 220 110, 430 82 C 410 290, 290 410, 120 392 Z" fill="#0b5e5d"/>
+  <path d="M120 392 C 110 250, 220 110, 430 82 L 120 392 Z" fill="#13acab"/>
+  <path d="M120 392 C 150 300, 230 190, 430 82 L 120 392 Z" fill="#14b4ae" opacity=".55"/>
+  <path d="M120 392 C 300 360, 400 250, 430 82 L 120 392 Z" fill="#0f8584"/>
+  <path d="M120 392 C 260 380, 380 280, 430 82 L 120 392 Z" fill="#10938c" opacity=".55"/>
+  <g stroke="#15c6b6" stroke-width="9" stroke-linecap="round" fill="none">
+    <path d="M72 440 L 430 82"/>
+    <path d="M214 298 L 200 214" stroke-width="6"/>
+    <path d="M276 236 L 268 160" stroke-width="6"/>
+    <path d="M214 298 L 300 312" stroke-width="6"/>
+    <path d="M276 236 L 352 244" stroke-width="6"/>
+  </g>
+</g>
+</svg>

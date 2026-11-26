@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arvidleaf – LaTeX at the speed of your own machine</title>
+  <meta name="description" content="arvidleaf is a free, local LaTeX editor written in Rust: live PDF preview with SyncTeX, no compile timeouts, version history, templates and a built-in reference manager.">
+  <meta property="og:title" content="arvidleaf – LaTeX at the speed of your own machine">
+  <meta property="og:description" content="A free, local LaTeX editor in Rust with an instant PDF preview and a built-in reference manager.">
+  <meta property="og:image" content="img/main.webp">
+  <meta name="theme-color" content="#17191d">
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="nav">
+  <a class="brand" href="#top"><img src="logo.svg" alt="" width="28" height="28"><span>arvidleaf</span></a>
+  <nav>
+    <a href="#why">Why</a>
+    <a href="#features">Features</a>
+    <a href="#references">References</a>
+    <a href="#install">Install</a>
+    <a class="gh" href="https://github.com/Arvuud/arvidleaf">GitHub</a>
+  </nav>
+</header>
+
+<main id="top">
+
+  <section class="hero">
+    <p class="pill">Free &amp; open source · v0.1 · Rust</p>
+    <h1>LaTeX at the speed of<br><span class="grad">your own machine.</span></h1>
+    <p class="lead">
+      arvidleaf is a local LaTeX editor with a live PDF preview, a built-in reference manager
+      and zero waiting for someone else's server. Your files stay on your disk, your
+      TeX&nbsp;Live does the work, and nothing ever times out.
+    </p>
+    <div class="cta">
+      <a class="btn primary" href="#install">Install arvidleaf</a>
+      <a class="btn" href="https://github.com/Arvuud/arvidleaf">View the source</a>
+    </div>
+    <figure class="shot hero-shot">
+      <picture>
+        <source srcset="img/light.webp" media="(prefers-color-scheme: light)">
+        <img src="img/main.webp" width="1440" height="900" alt="arvidleaf with a LaTeX chapter in the editor and the compiled PDF next to it; the line under the cursor is highlighted in the PDF">
+      </picture>
+    </figure>
+  </section>
+
+  <section class="stats" aria-label="Measured numbers">
+    <div><strong>~60&nbsp;ms</strong><span>from finished compile to the first visible PDF page</span></div>
+    <div><strong>500+&nbsp;pages</strong><span>scroll smoothly – only visible pages are rendered</span></div>
+    <div><strong>72&nbsp;ms</strong><span>to open a library of 10,000 references</span></div>
+    <div><strong>0</strong><span>accounts, uploads, page limits or compile timeouts</span></div>
+  </section>
+
+  <section id="why" class="section">
+    <h2>Why arvidleaf is the good stuff</h2>
+    <p class="sub">Everything you like about writing LaTeX in the browser – minus the browser.</p>
+    <div class="cards">
+      <article class="card">
+        <div class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></div>
+        <h3>Instant preview</h3>
+        <p>Compile with Ctrl+Enter (or automatically on save) and see the page about 60&nbsp;ms later. Double-click the PDF to jump to the source, press Ctrl+J to jump back.</p>
+      </article>
+      <article class="card">
+        <div class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+        <h3>Local and private</h3>
+        <p>Projects are plain folders. No login, no upload, no tracking. Your thesis never leaves your laptop unless you want it to.</p>
+      </article>
+      <article class="card">
+        <div class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 8.5C4.6 8.5 3 10 3 12s1.6 3.5 3.5 3.5c3.5 0 7.5-7 11-7 1.9 0 3.5 1.5 3.5 3.5s-1.6 3.5-3.5 3.5c-3.5 0-7.5-7-11-7z"/></svg></div>
+        <h3>No limits</h3>
+        <p>Your own TeX&nbsp;Live with every package you have installed, pdfLaTeX, XeLaTeX or LuaLaTeX via latexmk – and no timeout, however big the document gets.</p>
+      </article>
+      <article class="card">
+        <div class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg></div>
+        <h3>An editor that knows LaTeX</h3>
+        <p>Highlighting, completion for commands, labels, citations and files, auto-closing environments, <code>\usepackage</code> added for you when you use something new – and an optional Vim mode.</p>
+      </article>
+      <article class="card">
+        <div class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <h3>History built in</h3>
+        <p>A snapshot after every successful compile, every ten minutes and whenever you ask. Compare file by file and restore a single file or the whole project.</p>
+      </article>
+      <article class="card">
+        <div class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h4v16H4zM10 4h4v16h-4z"/><path d="m15.6 5.1 3.6-.9 3.3 14.6-3.6.9z"/></svg></div>
+        <h3>References included</h3>
+        <p>A full reference manager lives inside the editor: add papers by DOI, arXiv ID or ISBN, cite with Ctrl+Shift+C, and the entry lands in your project's <code>.bib</code>.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="features" class="section">
+    <h2>Made for actually writing</h2>
+
+    <div class="feature">
+      <div class="text">
+        <h3>Editor and PDF, side by side</h3>
+        <ul>
+          <li>Errors and warnings with file and line, shown right in the editor margin.</li>
+          <li>An outline of the whole project, across all chapter files.</li>
+          <li>Missing package? arvidleaf tells you which one and how to install it.</li>
+          <li>Write in Markdown if you prefer – with math, citations and front matter, compiled through LaTeX.</li>
+          <li>Import a ZIP downloaded from an online LaTeX editor and keep working offline.</li>
+        </ul>
+      </div>
+      <figure class="shot"><a href="img/main.webp"><img src="img/main.webp" loading="lazy" width="1440" height="900" alt="Editor with an equation and the PDF preview with the synchronized line highlighted"></a></figure>
+    </div>
+
+    <div class="feature flip">
+      <div class="text">
+        <h3>Start from a template</h3>
+        <ul>
+          <li>Article (English and German), thesis, presentation, poster, CV, letter, exercise sheet.</li>
+          <li>Previews are rendered from the real templates.</li>
+          <li>Turn any project into your own template with one click.</li>
+        </ul>
+      </div>
+      <figure class="shot"><a href="img/gallery.webp"><img src="img/gallery.webp" loading="lazy" width="1440" height="900" alt="Template gallery with rendered previews"></a></figure>
+    </div>
+
+    <div class="feature">
+      <div class="text">
+        <h3>Dark or light, your call</h3>
+        <ul>
+          <li>A calm dark theme for long nights and a clean light one for daylight.</li>
+          <li>Native app in Rust with egui: starts fast and stays fast with 10,000-line files.</li>
+          <li>All shortcuts at a glance with F1.</li>
+        </ul>
+      </div>
+      <figure class="shot"><a href="img/light.webp"><img src="img/light.webp" loading="lazy" width="1440" height="900" alt="arvidleaf in the light theme"></a></figure>
+    </div>
+  </section>
+
+  <section id="references" class="section refs">
+    <p class="pill">arvidref – the built-in reference manager</p>
+    <h2>Your references, one keystroke away</h2>
+    <p class="sub">No second program, no copy-pasting BibTeX, no broken bibliographies.</p>
+
+    <figure class="shot wide"><a href="img/refs.webp"><img src="img/refs.webp" loading="lazy" width="1440" height="900" alt="Reference library with collections, tags, a sortable table and the entry editor"></a></figure>
+
+    <div class="cards three">
+      <article class="card">
+        <h3>Add anything</h3>
+        <p>Paste a DOI, arXiv ID or ISBN and press Enter. Drop PDFs on the window – the DOI is read from the first page. BibTeX, CSL-JSON and a direct import from a Zotero data folder work too.</p>
+      </article>
+      <article class="card">
+        <h3>Stay organized</h3>
+        <p>Nested collections, tags, fast search across authors, titles, years and notes, duplicate detection and PDF attachments in the built-in viewer.</p>
+      </article>
+      <article class="card">
+        <h3>Plain BibLaTeX</h3>
+        <p>The library is a single <code>library.bib</code> you can version with git or sync anywhere. Untouched entries are written back byte for byte, with daily backups.</p>
+      </article>
+    </div>
+
+    <div class="feature">
+      <div class="text">
+        <h3>Cite without leaving the sentence</h3>
+        <ul>
+          <li>Ctrl+Shift+C opens the cite dialog; <code>\cite{</code> completes from your project and your library.</li>
+          <li>The entry is copied into the project's <code>.bib</code>, so the project still compiles for your co-authors.</li>
+          <li>No bibliography yet? arvidleaf sets up biblatex for you.</li>
+          <li>Undefined citation after compiling? One click adds it from the library.</li>
+          <li>Keep project and library in sync with a side-by-side diff.</li>
+        </ul>
+      </div>
+      <figure class="shot"><a href="img/cite.webp"><img src="img/cite.webp" loading="lazy" width="1440" height="900" alt="Cite dialog searching the library while writing a chapter"></a></figure>
+    </div>
+  </section>
+
+  <section class="section nope">
+    <h2>Things you will not see in arvidleaf</h2>
+    <ul class="nope-list">
+      <li>“Compile timed out”</li>
+      <li>“Please log in to continue”</li>
+      <li>“Upgrade for more compile time”</li>
+      <li>“Reconnecting…”</li>
+      <li>A spinner while your own laptop sits idle</li>
+    </ul>
+  </section>
+
+  <section id="install" class="section">
+    <h2>Install</h2>
+    <p class="sub">The install scripts set up TeX&nbsp;Live, poppler and Rust, build arvidleaf and add it to your app menu.</p>
+    <div class="install">
+      <article class="card">
+        <h3>Linux</h3>
+        <p class="note">Arch, Debian/Ubuntu, Fedora, openSUSE</p>
+        <pre><code>git clone https://github.com/Arvuud/arvidleaf.git
+cd arvidleaf
+./install.sh</code></pre>
+      </article>
+      <article class="card">
+        <h3>macOS <span class="tag">experimental</span></h3>
+        <p class="note">Homebrew, MacTeX</p>
+        <pre><code>git clone https://github.com/Arvuud/arvidleaf.git
+cd arvidleaf
+./install-macos.sh</code></pre>
+      </article>
+      <article class="card">
+        <h3>Windows <span class="tag">experimental</span></h3>
+        <p class="note">winget, MiKTeX – in PowerShell</p>
+        <pre><code>git clone https://github.com/Arvuud/arvidleaf.git
+cd arvidleaf
+powershell -ExecutionPolicy Bypass -File .\install.ps1</code></pre>
+      </article>
+    </div>
+    <p class="fine">arvidleaf is an early release (v0.1). It is developed and tested on Linux; the macOS and Windows installers are new. Found a bug? <a href="https://github.com/Arvuud/arvidleaf/issues">Open an issue</a>.</p>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="brand"><img src="logo.svg" alt="" width="22" height="22"><span>arvidleaf</span></div>
+  <p>Free software under the MIT or Apache-2.0 license. Written in Rust with egui.</p>
+  <p class="fine">arvidleaf is an independent project and not affiliated with Overleaf, Zotero or any other product mentioned on this page.</p>
+</footer>
+
+<script>
+  // copy buttons for the install commands
+  for (const pre of document.querySelectorAll('pre')) {
+    const b = document.createElement('button');
+    b.className = 'copy';
+    b.type = 'button';
+    b.textContent = 'Copy';
+    b.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(pre.innerText.replace(/Copy(ied)?$/, '').trim());
+        b.textContent = 'Copied';
+      } catch {
+        b.textContent = 'Select & copy';
+      }
+      setTimeout(() => (b.textContent = 'Copy'), 1500);
+    });
+    pre.appendChild(b);
+  }
+</script>
+</body>
+</html>

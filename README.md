@@ -5,6 +5,9 @@ angelehnt und im Aussehen an arvidlab. Geschrieben in Rust (egui); kompiliert
 wird mit der installierten TeX-Live-Distribution über `latexmk` – ohne Zeit-
 oder Seitenlimits.
 
+Website: <https://arvuud.github.io/arvidleaf/> (Quelle in `site/`, veröffentlicht über
+`.github/workflows/pages.yml`).
+
 Version 0.1.0 – Prototyp. Änderungen: `CHANGELOG.md`. Plan und Anforderungen: `reqs/`.
 
 ## Voraussetzungen
