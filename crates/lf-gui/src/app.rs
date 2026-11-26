@@ -16,7 +16,7 @@ use lf_tex::log::{Level, LogEntry};
 use lf_tex::outline::Heading;
 
 use crate::editor::{EditorAction, EditorDoc, EditorEnv, Link};
-use crate::history_ui::{HistoryAction, HistoryView};
+use crate::history_ui::{HistoryAction, HistoryView, diff_row};
 use crate::pdfview::{PdfAction, PdfView};
 use crate::refs_ui::RefsView;
 use crate::templates_ui::{Gallery, GalleryResult, Manager, ManagerResult, Previews};
@@ -75,6 +75,8 @@ enum Dialog {
     Cite { query: String, searched: Option<String>, results: Vec<String>, selected: usize, checked: Vec<String>, cmd: String },
     /// The document has no bibliography yet; entries went to `bib`.
     BibSetup { bib: PathBuf },
+    /// Differences between the project's `.bib` and the library.
+    Sync { bib: PathBuf, items: Vec<lf_ref::project::SyncItem>, selected: usize },
 }
 
 struct Workspace {
@@ -571,6 +573,92 @@ impl App {
                 self.compile();
             }
             Err(e) => self.status = format!("Could not change {}: {e}", main.display()),
+        }
+    }
+
+    /// Writes a whole project file: into its open buffer, else to disk.
+    fn write_project_text(&mut self, rel: &Path, new: &str) -> Result<(), String> {
+        let ctx = self.ctx.clone();
+        let ws = self.ws.as_mut().ok_or("no project")?;
+        if let Some(doc) = ws.docs.iter_mut().find_map(|d| match d {
+            Doc::Text(t) if t.rel == rel => Some(t),
+            _ => None,
+        }) {
+            doc.replace_text(&ctx, new);
+            return Ok(());
+        }
+        lf_core::write_atomic(&ws.project.root.join(rel), new.as_bytes()).map_err(|e| e.to_string())?;
+        if ws.project.meta.auto_compile {
+            ws.compile_due = Some(Instant::now());
+        }
+        Ok(())
+    }
+
+    /// The project's `.bib` compared with the library.
+    fn sync_items(&mut self) -> Result<(PathBuf, Vec<lf_ref::project::SyncItem>), String> {
+        if !self.ensure_refs() {
+            return Err("The reference library could not be opened".into());
+        }
+        let (bib, _) = self.project_bib().ok_or("Set a main file first")?;
+        let text = self.project_text(&bib).ok_or_else(|| format!("{} does not exist yet – cite something first", bib.display()))?;
+        let ws = self.ws.as_ref().ok_or("no project")?;
+        let mut cited: Vec<String> = Vec::new();
+        for f in &ws.files {
+            let ext = f.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if (ext == "tex" || ext == "md")
+                && let Some(t) = self.project_text(f)
+            {
+                cited.extend(lf_ref::project::cited_keys(&t, ext == "md"));
+            }
+        }
+        let lib = self.refs.as_ref().and_then(|r| r.library()).ok_or("no library")?;
+        Ok((bib, lf_ref::project::sync(lib, &text, &cited, &ws.bib_keys)))
+    }
+
+    fn open_sync_dialog(&mut self) {
+        match self.sync_items() {
+            Ok((bib, items)) => self.dialog = Some(Dialog::Sync { bib, items, selected: 0 }),
+            Err(e) => self.status = e,
+        }
+    }
+
+    /// Applies one sync action; returns a status message.
+    fn sync_action(&mut self, bib: &Path, item: &lf_ref::project::SyncItem, to_project: bool) -> String {
+        use lf_ref::project::SyncItem;
+        let text = self.project_text(bib).unwrap_or_default();
+        let project_entry = lf_ref::bib::parse(&text).entry(item.key()).cloned();
+        let Some(refs) = &mut self.refs else { return String::new() };
+        match (item, to_project) {
+            (SyncItem::Changed { key, .. }, true) => {
+                let Some(new) = refs.library().and_then(|l| l.entry(key)).and_then(|e| lf_ref::project::replace_entry(&text, key, e)) else { return format!("{key}: not found") };
+                match self.write_project_text(bib, &new) {
+                    Ok(()) => format!("{key}: library version written to {}", bib.display()),
+                    Err(e) => e,
+                }
+            }
+            (SyncItem::Changed { key, .. }, false) => {
+                let Some(p) = project_entry else { return format!("{key}: not found") };
+                let r = refs.with_library(|l| {
+                    let merged = lf_ref::project::merge_into_library(&p, l.entry(key)?);
+                    Some(l.update(key, merged))
+                });
+                match r.flatten() {
+                    Some(Ok(_)) => format!("{key}: library updated from the project"),
+                    Some(Err(e)) => e,
+                    None => format!("{key}: not in the library"),
+                }
+            }
+            (SyncItem::ProjectOnly { key } | SyncItem::KeyConflict { key, .. }, _) => {
+                let Some(mut p) = project_entry else { return format!("{key}: not found") };
+                let new = refs.with_library(|l| l.add_anyway(&mut p)).unwrap_or_default();
+                if new.eq_ignore_ascii_case(key) { format!("{key} added to the library") } else { format!("{key} added to the library as {new} (the key was taken)") }
+            }
+            (SyncItem::Missing { key }, _) => {
+                let k = key.clone();
+                self.add_to_project_bib(&[k]);
+                self.status.clone()
+            }
+            (SyncItem::SameWork { .. }, _) => String::new(),
         }
     }
 
@@ -1373,6 +1461,11 @@ impl App {
             if ui.add_enabled(self.ws.is_some(), egui::Button::new("Insert Citation…    Ctrl+Shift+C")).clicked() {
                 self.refs_open = false;
                 self.open_cite_dialog();
+                ui.close();
+            }
+            if ui.add_enabled(self.ws.is_some(), egui::Button::new("Sync Project .bib…")).on_hover_text("Compare the project's .bib with the library").clicked() {
+                self.refs_open = false;
+                self.open_sync_dialog();
                 ui.close();
             }
             if ui.button("Import from File…").on_hover_text("PDFs, .bib or CSL-JSON (e.g. a Zotero export)").clicked() {
@@ -2353,6 +2446,138 @@ impl App {
                     let c = if markdown { "cite".to_string() } else { cmd.clone() };
                     keep = false;
                     self.cite(&keys, &c);
+                }
+            }
+            Dialog::Sync { bib, items, selected } => {
+                use lf_ref::project::SyncItem;
+                ui.set_width((ctx.content_rect().width() - 80.0).min(1100.0));
+                ui.horizontal(|ui| {
+                    ui.heading("Sync Project .bib");
+                    ui.label(RichText::new(format!("{} ↔ library", bib.display())).color(pal.dim));
+                });
+                let mut act: Vec<(usize, bool)> = Vec::new();
+                let mut refresh = false;
+                if items.is_empty() {
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("The project's entries match the library.").color(pal.ok));
+                } else {
+                    let label = |i: &SyncItem| match i {
+                        SyncItem::Changed { key, .. } => ("≠", key.clone(), "changed in the library or the project"),
+                        SyncItem::KeyConflict { key, .. } => ("⚠", key.clone(), "key used for a different work"),
+                        SyncItem::ProjectOnly { key } => ("+", key.clone(), "only in the project"),
+                        SyncItem::SameWork { key, .. } => ("=", key.clone(), "in the library under another key"),
+                        SyncItem::Missing { key } => ("»", key.clone(), "cited, missing in the project"),
+                    };
+                    let h = (ctx.content_rect().height() * 0.6).max(240.0);
+                    ui.horizontal_top(|ui| {
+                        // fixed height: the vertical separator would otherwise grow the modal every frame
+                        ui.set_height(h);
+                        ui.set_max_height(h);
+                        ui.vertical(|ui| {
+                            ui.set_width(300.0);
+                            egui::ScrollArea::vertical().id_salt("sync-list").max_height(h).show(ui, |ui| {
+                                for (i, it) in items.iter().enumerate() {
+                                    let (sym, key, what) = label(it);
+                                    let mut job = egui::text::LayoutJob::default();
+                                    job.append(&format!("{sym} "), 0.0, egui::TextFormat::simple(egui::FontId::proportional(13.0), pal.accent));
+                                    job.append(&key, 0.0, egui::TextFormat::simple(egui::FontId::monospace(12.5), pal.text));
+                                    job.append(what, 8.0, egui::TextFormat::simple(egui::FontId::proportional(11.5), pal.dim));
+                                    job.wrap = egui::text::TextWrapping { max_width: 290.0, max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
+                                    if ui.selectable_label(i == *selected, job).clicked() {
+                                        *selected = i;
+                                    }
+                                }
+                            });
+                        });
+                        ui.separator();
+                        ui.vertical(|ui| {
+                            let Some(it) = items.get(*selected) else { return };
+                            let font = egui::FontId::monospace(12.0);
+                            let diff = |ui: &mut egui::Ui, old: &str, new: &str| {
+                                ui.label(RichText::new("− project   + library").small().color(pal.dim));
+                                egui::ScrollArea::both().id_salt("sync-diff").max_height(h - 110.0).auto_shrink([false, true]).show(ui, |ui| {
+                                    for d in lf_core::history::diff_lines(&format!("{old}\n"), &format!("{new}\n")) {
+                                        diff_row(ui, pal, &d, &font);
+                                    }
+                                });
+                            };
+                            match it {
+                                SyncItem::Changed { project, library, .. } => {
+                                    diff(ui, project, library);
+                                    ui.horizontal(|ui| {
+                                        if ui.button("Use library version in project").clicked() {
+                                            act.push((*selected, true));
+                                        }
+                                        if ui.button("Update library from project").on_hover_text("Attachments and notes in the library stay").clicked() {
+                                            act.push((*selected, false));
+                                        }
+                                    });
+                                }
+                                SyncItem::KeyConflict { key, project, library } => {
+                                    ui.label(RichText::new(format!("`{key}` means a different work in the library. The project keeps its entry; you can add it to the library under a new key.")).color(pal.warn));
+                                    diff(ui, project, library);
+                                    if ui.button("Add project entry to library (new key)").clicked() {
+                                        act.push((*selected, false));
+                                    }
+                                }
+                                SyncItem::ProjectOnly { key } => {
+                                    ui.label(format!("`{key}` is not in the library yet."));
+                                    if ui.button("Add to library").clicked() {
+                                        act.push((*selected, false));
+                                    }
+                                }
+                                SyncItem::SameWork { key, library_key } => {
+                                    ui.label(format!("The library has this work as `{library_key}`; the project calls it `{key}`. Nothing to do – both keep their keys."));
+                                }
+                                SyncItem::Missing { key } => {
+                                    ui.label(format!("The document cites `{key}`, but the project's .bib does not have it. The library does."));
+                                    if ui.button("Add from library").clicked() {
+                                        act.push((*selected, true));
+                                    }
+                                }
+                            }
+                        });
+                    });
+                }
+                ui.separator();
+                ui.horizontal(|ui| {
+                    let to_project: Vec<usize> = items.iter().enumerate().filter(|(_, i)| matches!(i, SyncItem::Changed { .. } | SyncItem::Missing { .. })).map(|(n, _)| n).collect();
+                    let to_library: Vec<usize> = items.iter().enumerate().filter(|(_, i)| matches!(i, SyncItem::ProjectOnly { .. })).map(|(n, _)| n).collect();
+                    if ui.add_enabled(!to_project.is_empty(), egui::Button::new(format!("Take all from library ({})", to_project.len()))).on_hover_text("Changed entries get the library version; missing ones are added").clicked() {
+                        act.extend(to_project.iter().map(|n| (*n, true)));
+                    }
+                    if ui.add_enabled(!to_library.is_empty(), egui::Button::new(format!("Add all project-only entries to library ({})", to_library.len()))).clicked() {
+                        act.extend(to_library.iter().map(|n| (*n, false)));
+                    }
+                    if ui.button("Refresh").clicked() {
+                        refresh = true;
+                    }
+                    if ui.button("Close").clicked() || esc {
+                        keep = false;
+                    }
+                });
+                if !act.is_empty() {
+                    let b = bib.clone();
+                    let mut msgs = Vec::new();
+                    for (n, to_project) in act {
+                        if let Some(it) = items.get(n).cloned() {
+                            msgs.push(self.sync_action(&b, &it, to_project));
+                        }
+                    }
+                    msgs.retain(|m| !m.is_empty());
+                    self.status = msgs.join(" · ");
+                    self.refresh_refs(true);
+                    refresh = true;
+                }
+                if refresh {
+                    match self.sync_items() {
+                        Ok((b, new)) => {
+                            *bib = b;
+                            *items = new;
+                            *selected = (*selected).min(items.len().saturating_sub(1));
+                        }
+                        Err(e) => self.status = e,
+                    }
                 }
             }
             Dialog::BibSetup { bib } => {

@@ -204,6 +204,16 @@ impl Bib {
         self.find(key).and_then(|i| if let Kind::Entry(e) = &self.blocks[i].kind { Some(e) } else { None })
     }
 
+    /// The entry as source: as written in the file if unchanged, else formatted.
+    pub fn source(&self, key: &str) -> Option<String> {
+        let b = &self.blocks[self.find(key)?];
+        match (&b.raw, &b.kind) {
+            (Some(raw), _) => Some(raw.trim().to_string()),
+            (None, Kind::Entry(e)) => Some(format_entry(e).trim_end().to_string()),
+            _ => None,
+        }
+    }
+
     /// 1-based line where the entry starts in the parsed file.
     pub fn entry_line(&self, key: &str) -> Option<usize> {
         self.find(key).map(|i| self.blocks[i].line)

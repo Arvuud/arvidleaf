@@ -1,6 +1,21 @@
 # Changelog
 
-## Unveröffentlicht – arvidref (Literaturverwaltung), Meilensteine RF1–RF5
+## Unveröffentlicht – arvidref (Literaturverwaltung), Meilensteine RF1–RF6
+
+- **Abgleich Projekt ↔ Bibliothek** (RF6, *References › Sync Project .bib…*): Liste der
+  Unterschiede mit Diff (Projekt − / Bibliothek +).
+  - Geänderte Einträge: Bibliotheksfassung ins Projekt übernehmen (die übrigen Einträge der
+    Datei bleiben Byte für Byte gleich) oder die Bibliothek aus dem Projekt aktualisieren
+    (Anhänge und Notizen der Bibliothek bleiben).
+  - Einträge nur im Projekt: in die Bibliothek aufnehmen, einzeln oder alle.
+  - Zitiert, aber nicht in der Projekt-`.bib`, jedoch in der Bibliothek: ins Projekt holen.
+  - Key-Konflikt (gleicher Key, anderes Werk): Das Projekt behält seinen Eintrag, die
+    Bibliothek nimmt ihn unter einem neuen Key auf. Danach wird er als „dasselbe Werk unter
+    anderem Key“ angezeigt statt weiter als Konflikt.
+  - Gleiche Arbeit unter anderem Key: nur ein Hinweis, beide Keys bleiben.
+  - Unterschiede nur in Klammern/Anführungszeichen, Leerraum oder den Bibliotheksfeldern
+    (`file`, `annotation`, Zeitstempel) zählen nicht.
+- README: Abschnitt „Literaturverwaltung (arvidref)“.
 
 - **Zitieren aus dem Editor** (RF5):
   - Zitier-Dialog (Strg+Umschalt+C, *Edit › Insert Citation…*): Suche über die Bibliothek

@@ -281,7 +281,7 @@ impl HistoryView {
 }
 
 
-fn diff_row(ui: &mut egui::Ui, pal: &Palette, d: &history::DiffLine, font: &egui::FontId) {
+pub(crate) fn diff_row(ui: &mut egui::Ui, pal: &Palette, d: &history::DiffLine, font: &egui::FontId) {
     let (bg, sign, col) = match d.kind {
         LineKind::Same => (egui::Color32::TRANSPARENT, ' ', pal.text),
         LineKind::Added => (pal.ok.gamma_multiply(0.15), '+', pal.text),

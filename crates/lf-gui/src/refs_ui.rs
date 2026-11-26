@@ -307,6 +307,15 @@ impl RefsView {
         self.lib.as_ref().ok()
     }
 
+    /// Changes the library and saves it.
+    pub fn with_library<R>(&mut self, f: impl FnOnce(&mut Library) -> R) -> Option<R> {
+        self.apply_draft();
+        let r = f(self.lib.as_mut().ok()?);
+        self.persist();
+        self.load_draft();
+        Some(r)
+    }
+
     /// Changes whenever the library changes.
     pub fn version(&self) -> u64 {
         self.version

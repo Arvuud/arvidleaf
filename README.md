@@ -117,6 +117,50 @@ Ein installierbares Linux-Paket baut `packaging/build-package.sh`
   `.bib` des Projekts kopiert (fehlt sie, entsteht `refs.bib` samt biblatex-Einrichtung).
   Das Projekt bleibt damit ohne die Bibliothek kompilierbar.
 
+## Literaturverwaltung (arvidref)
+
+arvidref ist eine Literaturverwaltung wie Zotero, aber im Editor eingebaut. Eine zentrale
+Bibliothek dient allen Projekten.
+
+**Bibliothek.** Sie liegt in `~/.local/share/arvidleaf/arvidref/` und lässt sich über
+*References › Change Library Location…* verlegen, etwa in einen Sync- oder git-Ordner.
+
+| Datei | Inhalt |
+|---|---|
+| `library.bib` | alle Einträge als normale BibLaTeX-Datei; unveränderte Einträge, Kommentare und `@string` bleiben Byte für Byte erhalten |
+| `collections.toml` | Sammlungen (`"Thesis/Kapitel 2" = ["key", …]`) |
+| `files/<key>/` | Anhänge (kopiert) |
+| `backups/` | eine Sicherung pro Tag, die letzten 30 |
+
+Tags stehen im Feld `keywords`, Notizen in `annotation`, Anhänge in `file`. Ändert ein
+anderes Programm `library.bib`, lädt arvidleaf sie neu. Überschrieben wird sie nie ohne
+Rückfrage.
+
+**Einträge hinzufügen** (*View › References*, Strg+Umschalt+R):
+- DOI, arXiv-ID oder ISBN ins Feld oben eintippen oder in der Liste mit Strg+V einfügen.
+  Abgefragt werden doi.org, arXiv, OpenLibrary und Crossref über `curl`, und nur dann.
+- BibTeX/BibLaTeX oder CSL-JSON einfügen oder als Datei importieren. Von Zotero geht das über
+  *Datei › Bibliothek exportieren* als „Better BibLaTeX“ oder „CSL JSON“.
+- PDFs auf das Fenster ziehen: Die DOI wird von der ersten Seite gelesen (`pdftotext`), das
+  PDF wird angehängt.
+- Dubletten (gleiche DOI, arXiv-ID oder gleicher Titel und Jahr) werden gemeldet statt doppelt
+  angelegt. Keys entstehen nach dem Muster `[auth][year][title]` (`mueller2021neuronale`), das
+  unter *References* änderbar ist.
+
+**Zitieren.** Mit Strg+Umschalt+C (oder `\cite{` mit Vervollständigung) wird der Eintrag in die
+`.bib` des Projekts *kopiert*. Das Projekt kompiliert damit auch ohne die Bibliothek, etwa bei
+Koautoren, in Overleaf oder im ZIP-Export. Gibt es noch keine `.bib`, legt arvidleaf `refs.bib`
+an und richtet auf Wunsch biblatex ein. Undefinierte Zitate, die in der Bibliothek stehen,
+lassen sich im Problems-Panel mit „Add from library“ nachtragen.
+
+**Abgleich** (*References › Sync Project .bib…*): zeigt als Diff, wo Projekt und Bibliothek
+auseinanderlaufen.
+- geänderte Einträge: in eine der beiden Richtungen übernehmen;
+- Einträge nur im Projekt: in die Bibliothek aufnehmen;
+- zitierte Keys, die nur in der Bibliothek stehen: ins Projekt holen;
+- Keys, die im Projekt ein anderes Werk meinen: das Projekt behält seinen Eintrag, die
+  Bibliothek bekommt ihn unter neuem Key.
+
 ## Eigene Templates
 
 Jeder Ordner in `~/.local/share/arvidleaf/templates/` ist eine Vorlage. Anlegen geht über

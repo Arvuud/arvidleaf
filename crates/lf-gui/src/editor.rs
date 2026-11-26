@@ -1365,6 +1365,15 @@ impl EditorDoc {
         }
     }
 
+    /// Replaces the whole text (from the app, e.g. an updated `.bib`); the cursor keeps its
+    /// position as far as the new text allows. Undo works as for any edit.
+    pub fn replace_text(&mut self, ctx: &egui::Context, new: &str) {
+        let n = new.chars().count();
+        let cur = self.cursor(ctx).map_or(0, |r| usize::from(r.primary.index)).min(n);
+        let len = self.text.chars().count();
+        self.splice(ctx, 0, len, new, cur);
+    }
+
     /// Inserts several texts at byte offsets (ascending), keeping the cursor on its text.
     pub fn insert_all(&mut self, ctx: &egui::Context, ins: &[(usize, String)]) {
         for (at, s) in ins.iter().rev() {

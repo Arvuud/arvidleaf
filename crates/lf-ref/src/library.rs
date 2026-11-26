@@ -197,12 +197,7 @@ impl Library {
 
     /// The entry as BibLaTeX source: as written in the file if unchanged, else formatted.
     pub fn source(&self, key: &str) -> Option<String> {
-        let b = &self.bib.blocks[self.bib.find(key)?];
-        match (&b.raw, &b.kind) {
-            (Some(raw), _) => Some(raw.trim().to_string()),
-            (None, bib::Kind::Entry(e)) => Some(bib::format_entry(e).trim_end().to_string()),
-            _ => None,
-        }
+        self.bib.source(key)
     }
 
     pub fn contains(&self, key: &str) -> bool {
