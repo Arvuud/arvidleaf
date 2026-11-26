@@ -198,6 +198,7 @@ pub fn fetch(id: &Identifier, opts: &NetOptions, cancel: &AtomicBool) -> Result<
     match id {
         Identifier::Doi(d) => fetch_doi(d, opts, cancel),
         Identifier::Arxiv(a) => {
+            arxiv_pause(cancel)?;
             let url = format!("https://export.arxiv.org/api/query?id_list={}", net::encode_path(a));
             let xml = net::get(&url, Some("application/atom+xml"), opts, cancel)?;
             let pre = arxiv::parse(&xml).map_err(ImportError::Format)?.ok_or_else(|| ImportError::NotFound(id.clone()))?;
@@ -223,6 +224,26 @@ pub fn fetch(id: &Identifier, opts: &NetOptions, cancel: &AtomicBool) -> Result<
         }
         Identifier::Isbn(i) => isbn::fetch(i, opts, cancel)?.ok_or_else(|| ImportError::NotFound(id.clone())),
     }
+}
+
+/// arXiv's API terms ask for at most one request every three seconds: waits until the
+/// last arXiv request (in this process) is that long ago. Cancelling stops the wait.
+fn arxiv_pause(cancel: &AtomicBool) -> Result<(), ImportError> {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    const GAP: Duration = Duration::from_secs(3);
+    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(t) = *last {
+        while t.elapsed() < GAP {
+            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return Err(ImportError::Net(NetError::Cancelled));
+            }
+            std::thread::sleep(Duration::from_millis(50).min(GAP.saturating_sub(t.elapsed())));
+        }
+    }
+    *last = Some(Instant::now());
+    Ok(())
 }
 
 fn fetch_doi(doi: &str, opts: &NetOptions, cancel: &AtomicBool) -> Result<Entry, ImportError> {
@@ -430,6 +451,17 @@ pub fn protect_case(latex: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn arxiv_requests_are_spaced() {
+        let go = AtomicBool::new(false);
+        let stop = AtomicBool::new(true);
+        let t = std::time::Instant::now();
+        assert!(arxiv_pause(&go).is_ok());
+        // right after a request: the next one would wait, cancelling ends the wait at once
+        assert_eq!(arxiv_pause(&stop), Err(ImportError::Net(NetError::Cancelled)));
+        assert!(t.elapsed() < std::time::Duration::from_secs(1));
+    }
+
     use super::*;
 
     #[test]

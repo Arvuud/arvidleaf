@@ -71,7 +71,7 @@ fn crossref_chapter_book_proceedings() {
     valid(&p);
     assert!(p.is("inproceedings"));
     let abs = f(&p, "abstract");
-    assert!(abs.starts_with("The paper presents the state feedback") && !abs.contains('<'), "{abs}");
+    assert!(abs.starts_with("Lorem ipsum dolor sit amet, \\emph{consectetur} adipiscing") && !abs.contains('<'), "{abs}");
     assert!(p.get("booktitle").is_some());
 }
 

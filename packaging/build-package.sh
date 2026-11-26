@@ -30,6 +30,8 @@ install -m755 packaging/install.sh "$stage/install.sh"
 install -m755 packaging/uninstall.sh "$stage/uninstall.sh"
 install -m755 packaging/desktop-entry.sh "$stage/desktop-entry.sh"
 install -m644 LICENSE-MIT LICENSE-APACHE README.md CHANGELOG.md "$stage/"
+# licenses of the compiled-in crates and fonts (MIT/Apache/OFL require them with binaries)
+python3 packaging/third-party-licenses.py > "$stage/THIRD-PARTY-LICENSES.txt"
 echo "$version" > "$stage/VERSION"
 
 tar -C dist -czf "dist/$name.tar.gz" "$name"

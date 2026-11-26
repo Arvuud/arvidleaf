@@ -43,7 +43,7 @@ put() { # mode source target
 put 755 "$src/bin/arvidleaf" "$prefix/bin/arvidleaf"
 put 644 "$src/share/icons/arvidleaf.svg" "$data/icons/hicolor/scalable/apps/arvidleaf.svg"
 put 644 "$src/share/icons/arvidleaf-256.png" "$data/icons/hicolor/256x256/apps/arvidleaf.png"
-for f in LICENSE-MIT LICENSE-APACHE README.md CHANGELOG.md VERSION; do
+for f in LICENSE-MIT LICENSE-APACHE THIRD-PARTY-LICENSES.txt README.md CHANGELOG.md VERSION; do
     put 644 "$src/$f" "$own/$f"
 done
 put 755 "$src/uninstall.sh" "$own/uninstall.sh"

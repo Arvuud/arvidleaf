@@ -264,3 +264,10 @@ eingebauten Templates, Overleaf-ZIP-Import und die Render-Zeit der ersten Seite.
 ## Lizenz
 
 MIT OR Apache-2.0
+
+Die Lizenzen der eingebauten Rust-Crates und Schriften stehen im Linux-Paket in
+`THIRD-PARTY-LICENSES.txt`, erzeugt mit `packaging/third-party-licenses.py`. Externe
+Programme wie TeX, poppler, curl und sqlite3 werden nur aufgerufen und sind nicht Teil von
+arvidleaf. Die Testdaten unter `crates/lf-ref/tests/fixtures/` sind Metadaten von Crossref,
+DataCite, arXiv und OpenLibrary (offene Metadaten; ein Abstract ist durch Platzhaltertext
+ersetzt) oder erfunden (Lorem Ipsum).
