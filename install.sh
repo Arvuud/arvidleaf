@@ -1,6 +1,7 @@
 #!/bin/sh
 # Installs arvidleaf on Linux with everything it needs:
-#   1. system packages: TeX Live (incl. German), latexmk, biber, poppler, C linker
+#   1. system packages: TeX Live (incl. German), latexmk, biber, poppler, C linker,
+#      curl and sqlite3 (reference library: DOI lookup, Zotero import)
 #   2. Rust (>= 1.95; via rustup if the distribution's is missing or too old)
 #   3. release build
 #   4. program, icon and app-menu entry (.desktop)
@@ -65,22 +66,22 @@ if [ "$deps" = 1 ]; then
             texlive-basic texlive-bin texlive-binextra texlive-latex texlive-latexrecommended texlive-latexextra \
             texlive-fontsrecommended texlive-fontsextra texlive-pictures texlive-mathscience texlive-publishers \
             texlive-bibtexextra texlive-xetex texlive-luatex texlive-langgerman texlive-langenglish \
-            biber poppler gcc
+            biber poppler gcc curl sqlite
     elif have apt-get; then
         sudo apt-get update
         sudo apt-get install -y \
             texlive-latex-extra texlive-fonts-recommended texlive-fonts-extra texlive-pictures texlive-science \
             texlive-publishers texlive-bibtex-extra texlive-xetex texlive-luatex texlive-lang-german \
-            latexmk biber poppler-utils build-essential curl
+            latexmk biber poppler-utils build-essential curl sqlite3
     elif have dnf; then
         sudo dnf install -y \
             texlive-scheme-medium texlive-collection-latexextra texlive-collection-langgerman \
             texlive-collection-bibtexextra texlive-xetex texlive-luatex \
-            latexmk biber poppler-utils gcc curl
+            latexmk biber poppler-utils gcc curl sqlite
     elif have zypper; then
         sudo zypper --non-interactive install \
             texlive-scheme-medium texlive-collection-latexextra texlive-collection-langgerman \
-            texlive-latexmk biber poppler-tools gcc curl
+            texlive-latexmk biber poppler-tools gcc curl sqlite3
     else
         warn "No supported package manager found. Install TeX Live, latexmk, biber, poppler and a C compiler by hand."
         exit 1
@@ -152,6 +153,10 @@ for t in latexmk pdflatex pdftoppm pdfinfo synctex biber; do
     if have "$t"; then echo "  ok       $t"; else echo "  missing  $t"; missing=1; fi
 done
 if kpsewhich ngerman.ldf >/dev/null 2>&1; then echo "  ok       German (babel ngerman)"; else echo "  missing  German (babel ngerman)"; fi
+# optional: reference library (DOI in PDFs, online lookup, Zotero import)
+for t in pdftotext curl sqlite3; do
+    if have "$t"; then echo "  ok       $t"; else echo "  optional $t (reference library)"; fi
+done
 [ "$missing" = 0 ] || warn "Some tools are missing – run ./install.sh without --no-deps, or see Help → System Check in the app."
 if pgrep -x arvidleaf >/dev/null 2>&1; then
     warn "arvidleaf is still running – restart it to use the new version."

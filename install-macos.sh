@@ -174,6 +174,10 @@ missing=0
 for t in latexmk pdflatex pdftoppm pdfinfo synctex biber; do
     if have "$t"; then echo "  ok       $t"; else echo "  missing  $t"; missing=1; fi
 done
+# optional: reference library (pdftotext comes with poppler, curl and sqlite3 with macOS)
+for t in pdftotext curl sqlite3; do
+    if have "$t"; then echo "  ok       $t"; else echo "  optional $t (reference library)"; fi
+done
 [ "$missing" = 0 ] || warn "Some tools are missing - run without --no-deps, or see Help > System Check in the app."
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "Note: add ~/.local/bin to PATH for the arvidleaf command." ;; esac
 echo

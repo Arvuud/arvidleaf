@@ -4,8 +4,9 @@
 
 .DESCRIPTION
     1. Tools via winget: MiKTeX (LaTeX, latexmk, biber, synctex), Strawberry Perl
-       (latexmk needs Perl), Poppler (PDF preview), Rust (rustup) and the
-       Visual Studio C++ Build Tools (linker for Rust).
+       (latexmk needs Perl), Poppler (PDF preview, DOI in PDFs), SQLite (Zotero
+       import), Rust (rustup) and the Visual Studio C++ Build Tools (linker for Rust).
+       curl (DOI lookup) comes with Windows 10/11.
     2. Release build of this checkout.
     3. Program in %LOCALAPPDATA%\Programs\arvidleaf, Start menu entry, "Open with"
        for .tex/.bib/.md, entry in "Installed apps" (uninstall there or with -Uninstall),
@@ -136,7 +137,7 @@ function New-Shortcut($lnk, $target, $icon) {
 if ($Uninstall) {
     if (-not (Test-Path $Dest)) { Write-Host 'arvidleaf is not installed.'; exit 1 }
     Remove-Installation
-    Write-Host 'arvidleaf removed (MiKTeX, Poppler, Perl and Rust stay installed).'
+    Write-Host 'arvidleaf removed (MiKTeX, Poppler, SQLite, Perl and Rust stay installed).'
     exit 0
 }
 
@@ -149,10 +150,11 @@ if (-not $NoDeps) {
         Warn 'winget is missing. Install "App Installer" from the Microsoft Store, then run this script again.'
         exit 1
     }
-    Step 'Installing MiKTeX, Strawberry Perl and Poppler'
+    Step 'Installing MiKTeX, Strawberry Perl, Poppler and SQLite'
     Winget-Install 'MiKTeX.MiKTeX'
     Winget-Install 'StrawberryPerl.StrawberryPerl'
     Winget-Install 'oschwartz10612.Poppler'
+    Winget-Install 'SQLite.SQLite'
     Update-SessionPath
 
     if (Have 'initexmf') {
@@ -171,6 +173,12 @@ if (-not $NoDeps) {
         } else {
             Warn 'pdftoppm.exe not found; install Poppler for Windows and add its bin folder to PATH.'
         }
+    }
+    # SQLite from winget is portable too (winget normally links sqlite3 into its Links folder)
+    if (-not (Have 'sqlite3')) {
+        $pkgs = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'
+        $exe = Get-ChildItem -Path $pkgs -Filter 'sqlite3.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($exe) { Add-UserPath $exe.DirectoryName } else { Warn 'sqlite3.exe not found; the Zotero import needs it (optional).' }
     }
 
     if (-not (Test-MsvcLinker)) {
@@ -263,6 +271,11 @@ Step 'Checking the setup'
 $missing = $false
 foreach ($t in @('latexmk', 'pdflatex', 'pdftoppm', 'pdfinfo', 'synctex', 'biber', 'perl')) {
     if (Have $t) { Write-Host "  ok       $t" } else { Write-Host "  missing  $t"; $missing = $true }
+}
+# optional: reference library (DOI in PDFs, online lookup, Zotero import)
+# (curl.exe: in Windows PowerShell "curl" is an alias of Invoke-WebRequest)
+foreach ($t in @('pdftotext', 'curl.exe', 'sqlite3')) {
+    if (Have $t) { Write-Host "  ok       $t" } else { Write-Host "  optional $t (reference library)" }
 }
 if ($missing) { Warn 'Some tools are missing - sign out and in again (PATH), or see Help > System Check in the app.' }
 Write-Host "`nStart arvidleaf from the Start menu. Uninstall: Settings > Apps > Installed apps, or .\install.ps1 -Uninstall"
