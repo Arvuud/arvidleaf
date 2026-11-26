@@ -5,6 +5,27 @@ angelehnt und im Aussehen an arvidlab. Geschrieben in Rust (egui); kompiliert
 wird mit der installierten TeX-Live-Distribution über `latexmk` – ohne Zeit-
 oder Seitenlimits.
 
+![arvidleaf: Kapitel im Editor, daneben das kompilierte PDF; die Zeile unter dem Cursor ist per SyncTeX im PDF markiert](site/img/main.webp)
+
+<table>
+  <tr>
+    <td width="50%"><img src="site/img/refs.webp" alt="Literaturverwaltung mit Sammlungen, Tags, Tabelle und Eintragseditor"></td>
+    <td width="50%"><img src="site/img/cite.webp" alt="Zitier-Dialog beim Schreiben eines Kapitels"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Literaturverwaltung: Sammlungen, Tags, Suche, PDF-Anhänge</sub></td>
+    <td align="center"><sub>Zitieren mit Strg+Umschalt+C, der Eintrag landet in der <code>.bib</code> des Projekts</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="site/img/gallery.webp" alt="Template-Galerie mit gerenderten Vorschaubildern"></td>
+    <td width="50%"><img src="site/img/light.webp" alt="arvidleaf im hellen Design"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Neues Projekt aus einer Vorlage</sub></td>
+    <td align="center"><sub>Helles Design (Standard: dunkel)</sub></td>
+  </tr>
+</table>
+
 Website: <https://arvuud.github.io/arvidleaf/> (Quelle in `site/`, veröffentlicht über
 `.github/workflows/pages.yml`).
 
