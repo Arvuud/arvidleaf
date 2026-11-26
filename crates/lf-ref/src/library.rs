@@ -195,6 +195,16 @@ impl Library {
         self.bib.entry(key)
     }
 
+    /// The entry as BibLaTeX source: as written in the file if unchanged, else formatted.
+    pub fn source(&self, key: &str) -> Option<String> {
+        let b = &self.bib.blocks[self.bib.find(key)?];
+        match (&b.raw, &b.kind) {
+            (Some(raw), _) => Some(raw.trim().to_string()),
+            (None, bib::Kind::Entry(e)) => Some(bib::format_entry(e).trim_end().to_string()),
+            _ => None,
+        }
+    }
+
     pub fn contains(&self, key: &str) -> bool {
         self.index.iter().any(|i| i.view.key.eq_ignore_ascii_case(key))
     }
@@ -304,7 +314,8 @@ impl Library {
             let (old, new) = (self.files_dir(key), self.files_dir(&e.key));
             if old.is_dir() && !new.exists() {
                 std::fs::rename(&old, &new).map_err(|err| format!("moving attachments: {err}"))?;
-                rewrite_file_paths(&mut e, &old, &new);
+                let new_key = e.key.clone();
+                rewrite_file_paths(&mut e, key, &new_key, &old, &new);
             }
         }
         let new_key = e.key.clone();
@@ -494,19 +505,120 @@ fn index_entry(e: &Entry, s: &Strings) -> Indexed {
     }
 }
 
-/// After moving the attachment folder: fix paths in the `file` field.
-fn rewrite_file_paths(e: &mut Entry, old: &Path, new: &Path) {
-    let (o, n) = (old.to_string_lossy().to_string(), new.to_string_lossy().to_string());
-    if let Some(Value(pieces)) = e.get("file").cloned() {
-        let pieces = pieces
-            .into_iter()
-            .map(|p| match p {
-                bib::Piece::Braced(s) => bib::Piece::Braced(s.replace(&o, &n)),
-                bib::Piece::Quoted(s) => bib::Piece::Quoted(s.replace(&o, &n)),
-                other => other,
-            })
-            .collect();
-        e.set("file", Value(pieces));
+/// After moving the attachment folder: fix paths in the `file` field (absolute paths and
+/// paths relative to the library, `files/<key>/…`).
+fn rewrite_file_paths(e: &mut Entry, old_key: &str, new_key: &str, old: &Path, new: &Path) {
+    let items: Vec<String> = attachments(e)
+        .into_iter()
+        .map(|f| {
+            let rel_old = format!("files/{old_key}/");
+            if let Some(rest) = f.strip_prefix(&rel_old) {
+                format!("files/{new_key}/{rest}")
+            } else if let Ok(rest) = Path::new(&f).strip_prefix(old) {
+                new.join(rest).to_string_lossy().to_string()
+            } else {
+                f
+            }
+        })
+        .collect();
+    set_attachments(e, &items);
+}
+
+/// Paths in the `file` field. Understands plain lists (`a.pdf;b.pdf`) and the JabRef/Zotero
+/// form `description:path:type` (with `\:` for colons in the path).
+pub fn attachments(e: &Entry) -> Vec<String> {
+    let Some(v) = e.get("file") else { return Vec::new() };
+    let raw = v.resolve(&Strings::new());
+    split_unescaped(&raw, ';')
+        .into_iter()
+        .map(|item| {
+            let parts = split_unescaped(&item, ':');
+            // `C:\x.pdf` has one colon and is a plain path
+            let path = if parts.len() == 3 { parts[1].clone() } else { item.clone() };
+            path.replace("\\:", ":").replace("\\;", ";").replace("\\\\", "\\").trim().to_string()
+        })
+        .filter(|p| !p.is_empty())
+        .collect()
+}
+
+fn split_unescaped(s: &str, sep: char) -> Vec<String> {
+    let mut out = vec![String::new()];
+    let mut esc = false;
+    for c in s.chars() {
+        if c == sep && !esc {
+            out.push(String::new());
+        } else {
+            out.last_mut().unwrap().push(c);
+        }
+        esc = c == '\\' && !esc;
+    }
+    out
+}
+
+/// Writes the `file` field as a plain `;`-separated list (removes it if empty). `:` and `;`
+/// in paths are escaped as JabRef expects.
+pub fn set_attachments(e: &mut Entry, items: &[String]) {
+    if items.is_empty() {
+        e.remove("file");
+    } else {
+        e.set("file", Value::text(items.iter().map(|p| p.replace('\\', "\\\\").replace(':', "\\:").replace(';', "\\;")).collect::<Vec<_>>().join(";")));
+    }
+}
+
+impl Library {
+    /// Attachments of an entry as absolute paths (relative ones are relative to the library).
+    pub fn files(&self, key: &str) -> Vec<PathBuf> {
+        let Some(e) = self.entry(key) else { return Vec::new() };
+        attachments(e).iter().map(|p| self.dir.join(p)).collect()
+    }
+
+    /// Copies `src` into the entry's attachment folder and adds it to the `file` field.
+    /// A file already in that folder is only added. Returns the stored path.
+    pub fn attach(&mut self, key: &str, src: &Path) -> Result<PathBuf, String> {
+        let mut e = self.entry(key).cloned().ok_or_else(|| format!("no entry \"{key}\""))?;
+        let dir = self.files_dir(&e.key);
+        let target = if src.parent().is_some_and(|p| p == dir) {
+            src.to_path_buf()
+        } else {
+            std::fs::create_dir_all(&dir).map_err(|err| format!("{}: {err}", dir.display()))?;
+            let name = src.file_name().ok_or("not a file")?.to_string_lossy().to_string();
+            let (stem, ext) = match name.rsplit_once('.') {
+                Some((s, x)) if !s.is_empty() => (s.to_string(), format!(".{x}")),
+                _ => (name.clone(), String::new()),
+            };
+            let mut t = dir.join(&name);
+            let mut n = 2;
+            while t.exists() {
+                t = dir.join(format!("{stem}-{n}{ext}"));
+                n += 1;
+            }
+            std::fs::copy(src, &t).map_err(|err| format!("copying {}: {err}", src.display()))?;
+            t
+        };
+        let rel = target.strip_prefix(&self.dir).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_else(|_| target.to_string_lossy().to_string());
+        let mut items = attachments(&e);
+        if !items.contains(&rel) {
+            items.push(rel);
+        }
+        set_attachments(&mut e, &items);
+        self.update(key, e)?;
+        Ok(target)
+    }
+
+    /// Removes an attachment from the entry; with `delete`, a file inside the library's
+    /// attachment folder is deleted too (files elsewhere are never deleted).
+    pub fn detach(&mut self, key: &str, path: &Path, delete: bool) -> Result<(), String> {
+        let mut e = self.entry(key).cloned().ok_or_else(|| format!("no entry \"{key}\""))?;
+        let items: Vec<String> = attachments(&e).into_iter().filter(|p| self.dir.join(p) != path).collect();
+        set_attachments(&mut e, &items);
+        self.update(key, e)?;
+        if delete && path.starts_with(self.dir.join("files")) {
+            std::fs::remove_file(path).map_err(|err| format!("{}: {err}", path.display()))?;
+            if let Some(d) = path.parent() {
+                let _ = std::fs::remove_dir(d); // only if empty
+            }
+        }
+        Ok(())
     }
 }
 

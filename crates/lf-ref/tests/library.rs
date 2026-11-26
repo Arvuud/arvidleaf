@@ -136,7 +136,8 @@ fn rename_update_remove() {
     let new_files = lib.files_dir("knuth:texbook");
     assert!(new_files.join("book.pdf").is_file() && !files.exists());
     let e = lib.entry("knuth:texbook").unwrap();
-    assert!(lib::field(e, "file").contains(&new_files.display().to_string()));
+    assert_eq!(lib.files("knuth:texbook"), [new_files.join("book.pdf")]);
+    let _ = e;
     assert_eq!(tags(e, lib.strings()), ["typesetting", "classic"]);
     assert_eq!(lib.tags(), [("classic".to_string(), 1), ("typesetting".to_string(), 1)]);
 
@@ -149,6 +150,44 @@ fn rename_update_remove() {
     assert!(text.starts_with("@article{mueller2021neuronale"), "no blank line left behind: {text:?}");
     let col = std::fs::read_to_string(dir.join("collections.toml")).unwrap();
     assert!(col.contains("Thesis/Chapter 1"));
+}
+
+#[test]
+fn attachments() {
+    let dir = tempdir("attach");
+    let mut lib = Library::open(&dir).unwrap();
+    let key = lib.add(knuth()).unwrap();
+    let src = dir.join("outside");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("paper.pdf"), b"%PDF-1").unwrap();
+    let a = lib.attach(&key, &src.join("paper.pdf")).unwrap();
+    let b = lib.attach(&key, &src.join("paper.pdf")).unwrap();
+    assert_eq!(a, lib.files_dir(&key).join("paper.pdf"));
+    assert_eq!(b, lib.files_dir(&key).join("paper-2.pdf"));
+    assert_eq!(lib::field(lib.entry(&key).unwrap(), "file"), format!("files/{key}/paper.pdf;files/{key}/paper-2.pdf"));
+    assert!(lib.view(&key).unwrap().has_file);
+
+    // renaming the key moves the folder and the relative paths
+    let mut e = lib.entry(&key).unwrap().clone();
+    e.key = "tex:book".into();
+    lib.update(&key, e).unwrap();
+    assert_eq!(lib::field(lib.entry("tex:book").unwrap(), "file"), r"files/tex\:book/paper.pdf;files/tex\:book/paper-2.pdf");
+    let files = lib.files("tex:book");
+    assert_eq!(files, [lib.files_dir("tex:book").join("paper.pdf"), lib.files_dir("tex:book").join("paper-2.pdf")]);
+    assert!(files.iter().all(|f| f.is_file()));
+
+    // detach: the copy in the library is deleted, the original stays
+    lib.detach("tex:book", &files[0], true).unwrap();
+    assert!(!files[0].exists() && files[1].is_file() && src.join("paper.pdf").is_file());
+    lib.detach("tex:book", &files[1], false).unwrap();
+    assert!(files[1].is_file());
+    assert!(lib.entry("tex:book").unwrap().get("file").is_none());
+    assert!(!lib.view("tex:book").unwrap().has_file);
+
+    // Zotero/JabRef form
+    let mut z = mueller();
+    z.set("file", Value::text(r"Full Text PDF:/home/u/Zotero/storage/AB12/M\:uller.pdf:application/pdf;C:\x.pdf"));
+    assert_eq!(lf_ref::library::attachments(&z), ["/home/u/Zotero/storage/AB12/M:uller.pdf", r"C:\x.pdf"]);
 }
 
 mod lib {

@@ -10,6 +10,7 @@
 //! - [`library`]: the central library (`library.bib`), search, duplicates, tags
 //! - [`collections`]: named, nested groups of entries
 //! - [`key`]: citation keys from a pattern
+//! - [`types`]: entry types and their required fields
 //! - [`import`]: BibTeX, CSL-JSON, PDFs; DOI/arXiv/ISBN lookups ([`net`], via curl)
 
 pub mod bib;
@@ -20,6 +21,7 @@ pub mod latex;
 pub mod library;
 pub mod names;
 pub mod net;
+pub mod types;
 
 pub use bib::{Bib, Block, Entry, Field, Kind, Piece, Value};
 pub use library::{EntryView, Library};

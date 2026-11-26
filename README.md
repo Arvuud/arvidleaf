@@ -17,6 +17,8 @@ Version 0.1.0 – Prototyp. Änderungen: `CHANGELOG.md`. Plan und Anforderungen:
 | `synctex` | Sprung PDF ↔ Quelltext | `texlive-binextra` |
 | `bibtex` / `biber` | Literatur | `texlive-bibtexextra` / `biber` |
 | babel-Sprachen | z. B. Deutsch | `texlive-langgerman` |
+| `pdftotext` | DOI aus importierten PDFs lesen (optional) | `poppler` |
+| `curl` | Literatur per DOI, arXiv-ID oder ISBN holen (optional) | `curl` |
 
 *Help › System Check* zeigt, was fehlt.
 
@@ -106,6 +108,11 @@ Ein installierbares Linux-Paket baut `packaging/build-package.sh`
   und von Hand (mit Label); Diff je Datei; Datei oder ganzes Projekt wiederherstellen.
 - **Import/Export**: ZIP (Overleaf-kompatibel), PDF exportieren, Dateien per Drag & Drop
   hinzufügen.
+- **Literaturverwaltung (arvidref)**, Strg+Umschalt+R: eine zentrale Bibliothek für alle
+  Projekte als normale BibLaTeX-Datei (`~/.local/share/arvidleaf/arvidref/library.bib`,
+  verlegbar). Einträge kommen per DOI, arXiv-ID, ISBN, BibTeX, CSL-JSON (Zotero-Export) oder
+  PDF per Drag & Drop hinein. Ordnen über Sammlungen und Tags, Suche, Editor mit
+  Pflichtfeldern, PDF-Anhänge im eingebauten Viewer. Zitieren aus dem Editor folgt.
 
 ## Eigene Templates
 
@@ -155,6 +162,7 @@ Die Tabelle dafür steht in `crates/lf-gui/src/shortcuts.rs`.
 | Tab / Umschalt+Tab | markierte Zeilen ein- / ausrücken |
 | Strg+H | Historie |
 | Strg+Umschalt+N, Strg+O | neues Projekt / Ordner öffnen |
+| Strg+Umschalt+R | Literaturverwaltung ein/aus; dort Strg+V fügt DOI/BibTeX aus der Zwischenablage ein, Entf/Strg+Z löschen/rückgängig |
 
 Im Vim-Modus gelten die Editier-Kürzel im Insert-Modus.
 
@@ -185,6 +193,7 @@ kompilieren), `:<zeile>`, `:%s/alt/neu/g` (wörtlich). Der aktuelle Modus steht 
 |---|---|
 | `lf-tex` | LaTeX-Tokenizer, Log-Parser, Compile-Runner (latexmk), SyncTeX, Outline, Vervollständigung, Werkzeugprüfung |
 | `lf-pdf` | Seitengrößen (`pdfinfo`), Seitenrendering (`pdftoppm`, PPM über stdout) mit Worker-Pool |
+| `lf-ref` | arvidref ohne GUI: verlustfreier BibLaTeX-Parser, Bibliothek, Keys, Sammlungen, Import (BibTeX, CSL-JSON, PDF, DOI/arXiv/ISBN über curl) |
 | `lf-core` | Projekte, Einstellungen, Templates, Versionshistorie (inhaltsadressiert, dedupliziert), ZIP |
 | `lf-gui` | egui-Oberfläche (`vim.rs`: Vim-Emulation); `theme.rs` stammt aus arvidlab |
 | `arvidleaf` | Programm (GUI, `--compile`, `--screenshot`) |

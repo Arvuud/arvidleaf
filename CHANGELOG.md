@@ -1,6 +1,34 @@
 # Changelog
 
-## Unveröffentlicht – arvidref (Literaturverwaltung), Meilensteine RF1–RF3
+## Unveröffentlicht – arvidref (Literaturverwaltung), Meilensteine RF1–RF4
+
+- **References-Ansicht** (RF4, *View › References* oder Strg+Umschalt+R, auch ohne offenes
+  Projekt):
+  - Links „All entries“, „Unfiled“, Sammlungen als Baum (anlegen, umbenennen, löschen,
+    Einträge per Drag & Drop einsortieren) und Tags als Filter.
+  - Tabelle mit Autor, Jahr, Titel, Zeitschrift/Verlag und Anhang-Symbol. Sortierbar per
+    Klick auf die Spaltenköpfe, Suche bei jedem Tastendruck. Gezeichnet werden nur die
+    sichtbaren Zeilen: 10 000 Einträge filtern und sortieren in 12–16 ms (Release).
+  - Mehrfachauswahl mit Strg/Umschalt+Klick, ↑/↓, Strg+A. Kontextmenü: `\cite` / Key /
+    BibLaTeX kopieren, PDF öffnen, DOI öffnen, zu einer Sammlung hinzufügen, löschen.
+    Entf löscht, Strg+Z oder „Undo delete“ stellt wieder her.
+  - Editor rechts: Eintragstyp, Key (mit Neuerzeugung nach Muster), Felder, wobei fehlende
+    Pflichtfelder des Typs markiert sind, Felder hinzufügen und entfernen, Tags, Notizen
+    (`annotation`) und Anhänge. Änderungen werden nach 0,8 s Pause gespeichert. Ein Key, den
+    ein anderer Eintrag schon hat, wird abgelehnt. Umschaltbar auf die BibLaTeX-Quelle mit
+    Hervorhebung.
+  - Import über das Eingabefeld oben (DOI, arXiv-ID, ISBN oder BibTeX, auch mehrere),
+    Strg+V in der Liste, *Import…* oder Drag & Drop von PDFs, `.bib`- und CSL-JSON-Dateien.
+    Online-Abfragen laufen im Hintergrund und lassen sich abbrechen. Hat ein PDF keine
+    erkennbare Kennung oder schlägt die Abfrage fehl, wird es mit dem Dateinamen als Titel
+    übernommen (eine gefundene DOI bleibt erhalten). Ein PDF zu einem vorhandenen Eintrag
+    ohne Anhang wird diesem angehängt.
+  - Anhänge werden nach `files/<key>/` kopiert und öffnen im eingebauten PDF-Viewer
+    (Esc zurück zur Liste). Wechselt der Key, ziehen Ordner und Pfade mit.
+  - Ändert ein anderes Programm `library.bib`, lädt die Ansicht sie neu. Hat man selbst
+    ungespeicherte Änderungen, fragt sie: „Reload from disk“ oder „Keep mine“.
+  - *References*-Menü: Bibliotheksordner öffnen oder verlegen (z. B. in einen Sync- oder
+    git-Ordner), Key-Muster, optionale Kontaktadresse für Crossref.
 
 - **Import** (`lf_ref::import`, RF3):
   - Einfügen oder Datei: BibTeX/BibLaTeX (`@string`-Makros der Quelle werden aufgelöst),

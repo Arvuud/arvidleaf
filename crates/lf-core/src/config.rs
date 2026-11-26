@@ -19,6 +19,12 @@ pub struct Config {
     pub show_outline: bool,
     /// Vim key bindings in the editor.
     pub vim: bool,
+    /// arvidref: folder of the reference library (default `<data_dir>/arvidref`).
+    pub library_dir: Option<PathBuf>,
+    /// arvidref: pattern for new citation keys (empty = default).
+    pub key_pattern: String,
+    /// arvidref: contact address sent to Crossref with online lookups (empty = none).
+    pub ref_mailto: String,
 }
 
 impl Default for Config {
@@ -32,6 +38,9 @@ impl Default for Config {
             hidden_templates: Vec::new(),
             show_outline: true,
             vim: false,
+            library_dir: None,
+            key_pattern: String::new(),
+            ref_mailto: String::new(),
         }
     }
 }
@@ -64,5 +73,10 @@ impl Config {
 
     pub fn projects_dir(&self) -> PathBuf {
         self.projects_dir.clone().unwrap_or_else(crate::paths::default_projects_dir)
+    }
+
+    /// Folder of the arvidref library.
+    pub fn library_dir(&self) -> PathBuf {
+        self.library_dir.clone().unwrap_or_else(|| crate::paths::data_dir().join("arvidref"))
     }
 }

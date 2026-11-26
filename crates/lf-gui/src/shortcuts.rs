@@ -16,6 +16,18 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
             ("Ctrl+H", "History"),
             ("Ctrl+Shift+N", "New project from template"),
             ("Ctrl+O", "Open project folder"),
+            ("Ctrl+Shift+R", "References (library) on / off"),
+        ],
+    ),
+    (
+        "References",
+        &[
+            ("Ctrl+V in the list", "Add the DOI, arXiv ID, ISBN or BibTeX on the clipboard"),
+            ("↑ / ↓, Ctrl/Shift+Click", "Select entries"),
+            ("Enter, double-click", "Open the attached PDF"),
+            ("Del, Ctrl+Z", "Delete the selection, undo"),
+            ("Drag onto a collection", "File the entries"),
+            ("Esc", "Back from the PDF to the list"),
         ],
     ),
     (

@@ -96,6 +96,19 @@ impl PdfView {
             Ok(_) => copy,
             Err(_) => pdf.to_path_buf(),
         };
+        self.show(pdf, shown);
+    }
+
+    /// Shows a PDF that does not change while it is open (an attachment): no preview copy.
+    pub fn open(&mut self, pdf: &Path) {
+        self.generation += 1;
+        self.textures.clear();
+        self.current_page = 1;
+        self.scroll_to = Some((1, 0.0));
+        self.show(pdf, pdf.to_path_buf());
+    }
+
+    fn show(&mut self, pdf: &Path, shown: PathBuf) {
         match lf_pdf::info(&shown) {
             Ok(info) => {
                 self.info = Some(info);

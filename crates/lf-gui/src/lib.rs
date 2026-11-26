@@ -1,12 +1,13 @@
 #![allow(deprecated)] // egui::Id::new, as in arvidlab
 //! arvidleaf desktop: project panel, LaTeX editor, PDF preview, templates
-//! and history. Look and feel shared with arvidlab (`theme.rs`).
+//! history and the reference library (arvidref). Look and feel shared with arvidlab (`theme.rs`).
 
 mod app;
 mod editor;
 mod history_ui;
 pub mod offscreen;
 mod pdfview;
+mod refs_ui;
 mod shortcuts;
 mod templates_ui;
 mod theme;

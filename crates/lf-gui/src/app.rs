@@ -17,6 +17,7 @@ use lf_tex::outline::Heading;
 use crate::editor::{EditorAction, EditorDoc, EditorEnv, Link};
 use crate::history_ui::{HistoryAction, HistoryView};
 use crate::pdfview::{PdfAction, PdfView};
+use crate::refs_ui::RefsView;
 use crate::templates_ui::{Gallery, GalleryResult, Manager, ManagerResult, Previews};
 use crate::theme::{self, Palette};
 
@@ -115,6 +116,10 @@ pub struct App {
     title: String,
     /// Completion picks across sessions (ranks suggestions).
     usage: lf_core::usage::Usage,
+    /// The reference library, loaded when first shown.
+    refs: Option<RefsView>,
+    /// The References view replaces the start screen or workspace.
+    refs_open: bool,
 }
 
 /// Opens a file or folder with the desktop's default application.
@@ -167,6 +172,8 @@ impl App {
             ctx: ctx.clone(),
             title: String::new(),
             usage: lf_core::usage::Usage::load(),
+            refs: None,
+            refs_open: false,
         };
         let missing: Vec<&str> = app.tools.iter().filter(|t| t.required && !t.found).map(|t| t.name).collect();
         if !missing.is_empty() {
@@ -180,7 +187,14 @@ impl App {
 
     /// Something is still running (compile, page rendering) – used by screenshots.
     pub fn is_busy(&self) -> bool {
-        self.ws.as_ref().is_some_and(|w| w.compiling.is_some() || w.pdf.busy())
+        self.ws.as_ref().is_some_and(|w| w.compiling.is_some() || w.pdf.busy()) || self.refs.as_ref().is_some_and(|r| r.busy())
+    }
+
+    fn toggle_refs(&mut self) {
+        self.refs_open = !self.refs_open;
+        if self.refs_open && self.refs.is_none() {
+            self.refs = Some(RefsView::new(&self.ctx, &self.cfg));
+        }
     }
 
     fn open_path(&mut self, p: &Path) {
@@ -700,7 +714,14 @@ impl App {
 
         egui::Panel::top("top").frame(egui::Frame::new().fill(pal.panel).inner_margin(egui::Margin::symmetric(10, 6))).show(ui, |ui| self.top_bar(ui, &pal));
         egui::Panel::bottom("status").frame(egui::Frame::new().fill(pal.bg).inner_margin(egui::Margin::symmetric(10, 3))).show(ui, |ui| self.status_bar(ui, &pal));
-        if self.ws.is_some() {
+        if self.refs_open
+            && let Some(r) = &mut self.refs
+        {
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(pal.bg)).show(ui, |ui| r.ui(ui, &pal));
+            if let Some(s) = r.status.take() {
+                self.status = s;
+            }
+        } else if self.ws.is_some() {
             self.workspace(ui, &pal);
         } else {
             egui::CentralPanel::default().frame(egui::Frame::new().fill(pal.bg).inner_margin(20)).show(ui, |ui| self.dashboard(ui, &pal));
@@ -760,6 +781,12 @@ impl App {
         if dropped.is_empty() {
             return;
         }
+        if self.refs_open
+            && let Some(r) = &mut self.refs
+        {
+            r.import_paths(&dropped);
+            return;
+        }
         if self.ws.is_none() {
             if let Some(p) = dropped.first() {
                 self.open_path(p);
@@ -812,6 +839,9 @@ impl App {
         });
         let (save, build, stop, quick, search, new_project, open, history, close) = i;
         let help = ctx.input(|i| i.key_pressed(Key::F1) || i.modifiers.command && i.key_pressed(Key::Questionmark));
+        if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(Key::R)) {
+            self.toggle_refs();
+        }
         if help {
             self.dialog = match self.dialog {
                 Some(Dialog::Shortcuts { .. }) => None,
@@ -969,6 +999,11 @@ impl App {
                     theme::apply(ui.ctx(), self.cfg.dark);
                     let _ = self.cfg.save();
                 }
+                if ui.selectable_label(self.refs_open, "References    Ctrl+Shift+R").clicked() {
+                    self.toggle_refs();
+                    ui.close();
+                }
+                ui.separator();
                 ui.checkbox(&mut self.cfg.show_outline, "Files & outline panel");
                 if let Some(ws) = &mut self.ws {
                     ui.checkbox(&mut ws.problems_open, "Problems panel");
@@ -1006,6 +1041,7 @@ impl App {
                     ui.close();
                 }
             });
+            self.references_menu(ui);
             ui.add_enabled_ui(has, |ui| self.build_menu(ui));
             ui.add_enabled_ui(has, |ui| {
                 ui.menu_button("History", |ui| {
@@ -1082,6 +1118,68 @@ impl App {
                 }
                 if do_stop {
                     self.stop();
+                }
+            }
+        });
+    }
+
+    fn references_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("References", |ui| {
+            let label = if self.refs_open { "Hide Library    Ctrl+Shift+R" } else { "Show Library    Ctrl+Shift+R" };
+            if ui.button(label).clicked() {
+                self.toggle_refs();
+                ui.close();
+            }
+            if ui.button("Import from File…").on_hover_text("PDFs, .bib or CSL-JSON (e.g. a Zotero export)").clicked() {
+                ui.close();
+                if let Some(files) = rfd::FileDialog::new().add_filter("PDF, BibTeX, CSL-JSON", &["pdf", "bib", "json", "txt"]).pick_files() {
+                    if !self.refs_open {
+                        self.toggle_refs();
+                    }
+                    if let Some(r) = &mut self.refs {
+                        r.import_paths(&files);
+                    }
+                }
+            }
+            ui.separator();
+            let dir = self.cfg.library_dir();
+            ui.label(RichText::new(format!("Library: {}", dir.display())).small().weak());
+            if ui.button("Open Library Folder").clicked() {
+                let _ = std::fs::create_dir_all(&dir);
+                open_external(&dir);
+                ui.close();
+            }
+            if ui.button("Change Library Location…").on_hover_text("A folder with library.bib – e.g. in a synced or git folder").clicked() {
+                ui.close();
+                if let Some(p) = rfd::FileDialog::new().set_directory(&dir).pick_folder() {
+                    self.cfg.library_dir = Some(p.clone());
+                    let _ = self.cfg.save();
+                    if let Some(r) = &mut self.refs {
+                        r.open(&p);
+                    }
+                    self.status = format!("Library: {}", p.display());
+                }
+            }
+            ui.separator();
+            let mut changed = false;
+            ui.horizontal(|ui| {
+                ui.label("Key pattern");
+                changed |= ui
+                    .add(egui::TextEdit::singleline(&mut self.cfg.key_pattern).hint_text(lf_ref::key::DEFAULT_PATTERN).desired_width(170.0))
+                    .on_hover_text("[auth] [Auth] [authors2] [year] [title] [Title] [shorttitle], other text is copied")
+                    .changed();
+            });
+            ui.horizontal(|ui| {
+                ui.label("Crossref contact");
+                changed |= ui
+                    .add(egui::TextEdit::singleline(&mut self.cfg.ref_mailto).hint_text("optional e-mail").desired_width(150.0))
+                    .on_hover_text("Sent with DOI lookups (Crossref's \"polite pool\"). Empty: nothing is sent.")
+                    .changed();
+            });
+            if changed {
+                let _ = self.cfg.save();
+                if let Some(r) = &mut self.refs {
+                    r.configure(&self.cfg);
                 }
             }
         });
@@ -2209,6 +2307,9 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        if let Some(r) = &mut self.refs {
+            r.flush();
+        }
         self.close_project();
         let _ = self.cfg.save();
     }
