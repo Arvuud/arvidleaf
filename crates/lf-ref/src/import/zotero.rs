@@ -247,11 +247,22 @@ fn note_text(html: &str) -> String {
 
 /// Runs a query on a database file and returns the rows.
 fn query(db: &Path, sql: &str) -> Result<Vec<Map<String, J>>, String> {
-    let out = Command::new("sqlite3").arg("-readonly").arg("-json").arg(db).arg(sql).output().map_err(|e| {
+    let mut c = Command::new("sqlite3");
+    c.arg("-readonly").arg("-json").arg(db).arg(sql);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let out = c.output().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound { "sqlite3 is not installed – the Zotero import needs it".to_string() } else { e.to_string() }
     })?;
     if !out.status.success() {
-        return Err(format!("sqlite3: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        let err = String::from_utf8_lossy(&out.stderr);
+        if err.contains("-json") {
+            return Err("sqlite3 is too old – the Zotero import needs version 3.33 or newer".into());
+        }
+        return Err(format!("sqlite3: {}", err.trim()));
     }
     let text = String::from_utf8_lossy(&out.stdout);
     if text.trim().is_empty() {
@@ -430,7 +441,7 @@ pub fn add_to_library(lib: &mut Library, data: &ZoteroData) -> ZoteroReport {
 /// Copies an attachment into the entry's folder (call on a worker thread); then
 /// [`Library::attach`] with the returned path only links it.
 pub fn copy_file(lib_dir: &Path, key: &str, src: &Path) -> Result<PathBuf, String> {
-    let dir = lib_dir.join("files").join(key);
+    let dir = crate::library::files_dir_in(lib_dir, key);
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let name = src.file_name().ok_or("not a file")?.to_string_lossy().to_string();
     let (stem, ext) = match name.rsplit_once('.') {

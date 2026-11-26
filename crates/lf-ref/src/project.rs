@@ -85,25 +85,35 @@ pub fn bib_resources(tex: &str) -> Vec<String> {
 /// biblatex (biber) is set up. `\printbibliography` is added when missing. Empty if the
 /// text has no `\begin{document}` (not a main file). Offsets ascend.
 pub fn add_bib_resource(tex: &str, file: &str) -> Vec<(usize, String)> {
-    let begin = commands(tex, "begin").into_iter().find(|(_, a)| *a == "document").map(|(p, _)| p);
-    let end = commands(tex, "end").into_iter().find(|(_, a)| *a == "document").map(|(p, _)| p);
+    bib_setup(&[tex], file).into_iter().map(|(_, at, s)| (at, s)).collect()
+}
+
+/// Like [`add_bib_resource`] for a document spread over several files: `files[0]` is the
+/// main file, the others are included files (a preamble that loads biblatex is used
+/// instead of loading it again). Returns (file index, byte offset, text), offsets
+/// ascending per file.
+pub fn bib_setup(files: &[&str], file: &str) -> Vec<(usize, usize, String)> {
+    let Some(&main) = files.first() else { return Vec::new() };
+    let begin = commands(main, "begin").into_iter().find(|(_, a)| *a == "document").map(|(p, _)| p);
+    let end = commands(main, "end").into_iter().find(|(_, a)| *a == "document").map(|(p, _)| p);
     let (Some(begin), Some(end)) = (begin, end) else { return Vec::new() };
-    let line_after = |p: usize| tex[p..].find('\n').map_or(tex.len(), |n| p + n + 1);
-    let biblatex = commands(tex, "usepackage").into_iter().find(|(_, a)| a.split(',').any(|p| p.trim() == "biblatex"));
-    let bibtex = !commands(tex, "bibliographystyle").is_empty() || tex.contains("{natbib}");
+    let line_after = |tex: &str, p: usize| tex[p..].find('\n').map_or(tex.len(), |n| p + n + 1);
+    let biblatex = files.iter().enumerate().find_map(|(i, t)| commands(t, "usepackage").into_iter().find(|(_, a)| a.split(',').any(|p| p.trim() == "biblatex")).map(|(p, _)| (i, line_after(t, p))));
+    let bibtex = files.iter().any(|t| !commands(t, "bibliographystyle").is_empty() || t.contains("{natbib}"));
     let mut ins = Vec::new();
     match biblatex {
-        Some((p, _)) => ins.push((line_after(p), format!("\\addbibresource{{{file}}}\n"))),
+        Some((i, at)) => ins.push((i, at, format!("\\addbibresource{{{file}}}\n"))),
         None if bibtex => {
             let stem = file.strip_suffix(".bib").unwrap_or(file);
-            ins.push((end, format!("\\bibliography{{{stem}}}\n")));
+            ins.push((0, end, format!("\\bibliography{{{stem}}}\n")));
             return ins;
         }
-        None => ins.push((begin, format!("\\usepackage[backend=biber]{{biblatex}}\n\\addbibresource{{{file}}}\n\n"))),
+        None => ins.push((0, begin, format!("\\usepackage[backend=biber]{{biblatex}}\n\\addbibresource{{{file}}}\n\n"))),
     }
-    if !has_command(tex, "printbibliography") {
-        ins.push((end, "\\printbibliography\n".into()));
+    if !files.iter().any(|t| has_command(t, "printbibliography")) {
+        ins.push((0, end, "\\printbibliography\n".into()));
     }
+    ins.sort_by_key(|(i, at, _)| (*i, *at));
     ins
 }
 
@@ -435,6 +445,14 @@ mod tests {
         let bt = "\\documentclass{article}\n\\begin{document}\n\\bibliographystyle{plain}\n\\end{document}\n";
         assert!(apply(bt, &add_bib_resource(bt, "refs.bib")).contains("\\bibliography{refs}\n\\end{document}"));
         assert!(add_bib_resource("\\section{Only a chapter}", "refs.bib").is_empty());
+
+        // biblatex loaded in an included preamble: \addbibresource goes there, not a second \usepackage
+        let main = "\\documentclass{book}\n\\input{preamble}\n\\begin{document}\nHi\n\\end{document}\n";
+        let pre = "\\usepackage[style=apa]{biblatex}\n\\usepackage{xcolor}\n";
+        let ins = bib_setup(&[main, pre], "refs.bib");
+        assert_eq!(ins, [(0, main.find("\\end{document}").unwrap(), "\\printbibliography\n".to_string()), (1, pre.find("\\usepackage{xcolor}").unwrap(), "\\addbibresource{refs.bib}\n".to_string())]);
+        let chapter_prints = "\\printbibliography[heading=bibintoc]";
+        assert_eq!(bib_setup(&[main, pre, chapter_prints], "refs.bib").len(), 1, "\\printbibliography in another file counts");
     }
 
     #[test]

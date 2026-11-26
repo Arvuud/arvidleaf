@@ -575,6 +575,49 @@ Mittelbereich wie das Dashboard, die Menü- und Statusleiste bleiben.
 | RF6 Abgleich | erledigt (26.11.2026): `lf_ref::project::{cited_keys, sync, replace_entry, merge_into_library}` und Dialog *References › Sync Project .bib…* mit Diff (`history::diff_lines`, `diff_row` der History-Ansicht). Fälle: geändert (beide Richtungen), nur Projekt, zitiert/nur Bibliothek, Key-Konflikt, gleiches Werk unter anderem Key. Tests: 2 Unit-Tests (alle Fälle, verlustfreies Ersetzen, Zusammenführen), Testprojekt `~/Documents/arvidleaf/test/arvidref-rf6/thesis` offscreen durchgespielt bis biber (4 Einträge, keine Warnung). README-Abschnitt, CHANGELOG. **Abweichung:** Es wird nur die erste `.bib` des Projekts abgeglichen. Einträge in weiteren `.bib`-Dateien gelten als vorhanden, werden aber nicht verglichen. |
 | RF7 zotero.sqlite | erledigt (26.11.2026): `lf_ref::import::zotero` (Kopie der DB, Abfragen über das Programm `sqlite3 -readonly -json`, Umsetzung nach Zoteros CSL-Zuordnung aus dem globalen Schema, dann `csl::to_entry`), Import im Hintergrund in der References-Ansicht, Menü *References › Import from Zotero…*. Tests: 2 Unit-Tests (Datumsformate, Feld- und Typzuordnung), 3 Integrationstests auf der Testdatenbank `tests/fixtures/zotero/zotero.sql` (Tabellen wie Zoteros `userdata.sql`, Typen/Felder aus dem globalen Schema; Papierkorb, Gruppenbibliothek, eigenständige Notizen/Dateien, Schnappschuss, fehlende Dateien, gelöschte Sammlung), 1 Test der Ansicht (Dateien im Hintergrund kopiert), biber-Gegenprobe ohne Warnung. **Abweichungen:** `sqlite3` als externes Programm statt einer eingebundenen SQLite-Bibliothek (kein C-Code im Build, wie curl/poppler; unter Windows muss es installiert werden). Ohne echte Zotero-Installation getestet: Die Testdatenbank bildet Zoteros Schema nach. Anhänge, die mit relativem Basisordner verknüpft sind (`attachments:`), werden als fehlend gemeldet. |
 
+### 15.10 REVIEW (26.11.2026)
+
+**Anforderungen (15.1):**
+
+| # | Stand | Nachweis |
+|---|---|---|
+| Q1 Zentrale Bibliothek | erfüllt | `<data_dir>/arvidref/library.bib`, Ort über *References › Change Library Location…* |
+| Q2 Offenes Format | erfüllt | BibLaTeX-Datei, verlustfrei (Roundtrip über 17 270 TeX-Live-Einträge), `collections.toml`, `files/` |
+| Q3 Zitieren aus dem Editor | erfüllt | Strg+Umschalt+C, `\cite`-Completion, „Cite“ in der Bibliothek; Übernahme in die Projekt-`.bib` |
+| Q4 Import per Kennung | erfüllt | DOI, arXiv, ISBN über curl; Online-Test `--ignored` |
+| Q5 Import offline | erfüllt | BibTeX, CSL-JSON, PDF per Drag & Drop, dazu `zotero.sqlite` (RF7) |
+| Q6 PDF-Anhänge | erfüllt | mehrere pro Eintrag, eingebauter Viewer |
+| Q7 Ordnen | erfüllt | Tags, verschachtelte Sammlungen, Suche (Autor/Titel/Jahr/Key/Journal/Notiz/DOI) |
+| Q8 Später eigenständig | erfüllt | `lf-ref` hängt nicht von egui ab |
+
+Teilweise gegenüber 15.5/15.7: Importe gehen ohne vorgeschaltete Vorschau direkt in die
+Bibliothek (danach ist der Eintrag ausgewählt und im Editor änderbar, fehlende Pflichtfelder
+markiert, Löschen mit Strg+Z rückgängig). Beobachten per Abfrage alle 2 s statt `notify`.
+
+**Code-Review, Befunde und Korrekturen:**
+
+| Befund | Korrektur |
+|---|---|
+| `sqlite3` startete unter Windows ein Konsolenfenster | `CREATE_NO_WINDOW` wie bei curl/poppler; zu altes sqlite3 (ohne `-json`) mit klarer Meldung |
+| curl vor 7.71 (älteres Windows 10) kennt `--retry-all-errors` nicht: jede Online-Abfrage wäre gescheitert | zweiter Versuch ohne diese Option |
+| Anhangsordner hieß wie der Key: `:` ist unter Windows verboten, `/` verschachtelte Ordner | Ordnername ohne `/ \ : * ? " < > |` (`files/tex_book/`), Key unverändert |
+| Bibliographie in eingebundenen Dateien (eigene Präambel) wurde nicht erkannt: zweite `refs.bib`, biblatex doppelt geladen | alle `.tex`-Dateien des Projekts werden gelesen; `\addbibresource` kommt hinter das vorhandene `\usepackage{biblatex}` (`project::bib_setup`), `\printbibliography` in einer anderen Datei zählt |
+| Alle 1,5 s wurden alle Projekt-`.bib` neu geparst und beschrieben | Cache nach Inhalts-Hash |
+| Verschwand `library.bib` kurz (Sync-Programm), lud die Ansicht eine leere Bibliothek | Einträge bleiben geladen, einmalige Meldung |
+| Speicherkonflikt bei verborgener References-Ansicht blieb unbemerkt | Meldung in der Statuszeile |
+| Plan-Lücke: „Cite“ in der Bibliothek kopierte nur | „Cite“ in Werkzeugleiste, Detail und Kontextmenü fügt ins offene Dokument ein |
+
+Geprüft ohne Befund: Thread-Sicherheit (Worker schreiben nur über Kanäle, die Bibliothek
+gehört dem UI-Thread; Abbrechen über `AtomicBool`), Pfade mit Leerzeichen und Umlauten
+(Zotero-Anhang „Müller et al. - 2021 - Lorem.pdf“, `Über Dolor`), fehlende Werkzeuge (jede
+Funktion meldet das fehlende Programm, der Rest läuft).
+
+**Prüfungen:** `cargo clippy --workspace --all-targets -- -D warnings` ohne Befund, alle
+Tests grün. `cargo fmt --check` nicht ausgeführt: rustfmt ist nicht installiert, und das
+Projekt hat keine `rustfmt.toml` (über 1000 Zeilen sind länger als 100 Zeichen, die
+Vorgabe von rustfmt). Offen: Entscheidung über eine `rustfmt.toml`, Installer-Lauf unter
+Windows/macOS, Import aus einer echten Zotero-Installation.
+
 ### 15.9 Entscheidungen (24.11.2026)
 
 Der Nutzer hat die offenen Fragen delegiert („Mach, was du für richtig hältst“). Entschieden wurde:

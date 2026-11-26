@@ -162,7 +162,7 @@ impl Library {
 
     /// Folder for the attachments of an entry.
     pub fn files_dir(&self, key: &str) -> PathBuf {
-        self.dir.join("files").join(key)
+        files_dir_in(&self.dir, key)
     }
 
     pub fn is_dirty(&self) -> bool {
@@ -394,6 +394,19 @@ fn match_score(field: &str, term: &str) -> Option<u32> {
     Some(if word_start { 2 } else { 1 })
 }
 
+/// Attachment folder of `key` in the library `dir`: `files/<key>`, with characters that
+/// are not allowed in file names on Windows (`:` is common in keys) or that would nest
+/// folders (`/`) replaced by `_`.
+pub fn files_dir_in(dir: &Path, key: &str) -> PathBuf {
+    dir.join("files").join(folder_name(key))
+}
+
+fn folder_name(key: &str) -> String {
+    let s: String = key.chars().map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() { '_' } else { c }).collect();
+    let s = s.trim_end_matches(['.', ' ']).to_string();
+    if s.is_empty() { "_".into() } else { s }
+}
+
 /// The list row of an entry (for entries outside the library, e.g. in a project `.bib`).
 pub fn view_of(e: &Entry, strings: &Strings) -> EntryView {
     index_entry(e, strings).view
@@ -520,9 +533,9 @@ fn rewrite_file_paths(e: &mut Entry, old_key: &str, new_key: &str, old: &Path, n
     let items: Vec<String> = attachments(e)
         .into_iter()
         .map(|f| {
-            let rel_old = format!("files/{old_key}/");
+            let rel_old = format!("files/{}/", folder_name(old_key));
             if let Some(rest) = f.strip_prefix(&rel_old) {
-                format!("files/{new_key}/{rest}")
+                format!("files/{}/{rest}", folder_name(new_key))
             } else if let Ok(rest) = Path::new(&f).strip_prefix(old) {
                 new.join(rest).to_string_lossy().to_string()
             } else {

@@ -2,6 +2,18 @@
 
 ## Unveröffentlicht – arvidref (Literaturverwaltung), Meilensteine RF1–RF7
 
+- **Review-Korrekturen:**
+  - „Cite“ in der Literaturverwaltung (Werkzeugleiste, Detail, Kontextmenü) fügt das Zitat ins
+    offene Dokument ein.
+  - Lädt eine eingebundene Präambeldatei biblatex, kommt `\addbibresource` dorthin, statt
+    biblatex ein zweites Mal zu laden.
+  - Anhangsordner sind auch unter Windows gültig, wenn der Key `:` oder `/` enthält.
+  - Online-Abfragen funktionieren auch mit älterem curl (ohne `--retry-all-errors`).
+  - Unter Windows öffnet der Zotero-Import keine Konsolenfenster.
+  - Projekt-`.bib`-Dateien werden nur nach Änderungen neu gelesen.
+  - Verschwindet `library.bib` kurz (Sync-Programm), bleiben die Einträge geladen.
+  - Speicherkonflikte werden auch bei verborgener Ansicht gemeldet.
+
 - **Import direkt aus Zotero** (RF7, *References › Import from Zotero…*, Ordner mit
   `zotero.sqlite`, Standard `~/Zotero`):
   - Gelesen wird eine Kopie der Datenbank über das Programm `sqlite3`. Zotero darf dabei

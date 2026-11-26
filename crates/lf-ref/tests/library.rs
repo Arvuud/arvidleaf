@@ -171,7 +171,7 @@ fn attachments() {
     let mut e = lib.entry(&key).unwrap().clone();
     e.key = "tex:book".into();
     lib.update(&key, e).unwrap();
-    assert_eq!(lib::field(lib.entry("tex:book").unwrap(), "file"), r"files/tex\:book/paper.pdf;files/tex\:book/paper-2.pdf");
+    assert_eq!(lib::field(lib.entry("tex:book").unwrap(), "file"), "files/tex_book/paper.pdf;files/tex_book/paper-2.pdf", "no colon in folder names (Windows)");
     let files = lib.files("tex:book");
     assert_eq!(files, [lib.files_dir("tex:book").join("paper.pdf"), lib.files_dir("tex:book").join("paper-2.pdf")]);
     assert!(files.iter().all(|f| f.is_file()));
@@ -183,6 +183,8 @@ fn attachments() {
     assert!(files[1].is_file());
     assert!(lib.entry("tex:book").unwrap().get("file").is_none());
     assert!(!lib.view("tex:book").unwrap().has_file);
+
+    assert_eq!(lib.files_dir("a/b:c*"), dir.join("files").join("a_b_c_"), "one folder, valid on Windows");
 
     // Zotero/JabRef form
     let mut z = mueller();

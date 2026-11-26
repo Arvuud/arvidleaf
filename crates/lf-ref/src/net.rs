@@ -58,9 +58,20 @@ impl NetOptions {
 
 /// GET `url` and return the body. `accept` sets the Accept header.
 pub fn get(url: &str, accept: Option<&str>, opts: &NetOptions, cancel: &AtomicBool) -> Result<String, NetError> {
+    match get_with(url, accept, opts, cancel, true) {
+        // curl before 7.71 (e.g. an older Windows 10) does not know --retry-all-errors
+        Err(NetError::Other(m)) if m.contains("retry-all-errors") || m.contains("option") && m.contains("unknown") => get_with(url, accept, opts, cancel, false),
+        r => r,
+    }
+}
+
+fn get_with(url: &str, accept: Option<&str>, opts: &NetOptions, cancel: &AtomicBool, retry_all: bool) -> Result<String, NetError> {
     let timeout = if opts.timeout == 0 { 15 } else { opts.timeout };
     let mut c = Command::new("curl");
-    c.args(["-sS", "-L", "--compressed", "--retry", "2", "--retry-all-errors", "--retry-delay", "1", "--connect-timeout", "8"]);
+    c.args(["-sS", "-L", "--compressed", "--retry", "2", "--retry-delay", "1", "--connect-timeout", "8"]);
+    if retry_all {
+        c.arg("--retry-all-errors");
+    }
     c.args(["--max-time", &timeout.to_string(), "-A", &opts.user_agent(), "-w", "\n%{http_code}"]);
     if let Some(a) = accept {
         c.args(["-H", &format!("Accept: {a}")]);

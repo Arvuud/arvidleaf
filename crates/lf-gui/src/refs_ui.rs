@@ -228,6 +228,8 @@ pub struct RefsView {
     pdf: Option<PdfView>,
     reading: Option<PathBuf>,
     conflict: bool,
+    /// `library.bib` vanished (reported once).
+    gone: bool,
     checked: Instant,
     collapsed: HashSet<String>,
     /// Collection name being created or renamed: (old path or parent prefix, text, is_rename).
@@ -235,6 +237,10 @@ pub struct RefsView {
     ctx: egui::Context,
     /// Counts changes to the library (for caches outside the view).
     version: u64,
+    /// Set by the app: a document is open to cite into.
+    pub can_cite: bool,
+    /// Keys to cite in the open document, taken by the app.
+    pub cite: Option<Vec<String>>,
     /// Message for the status bar, taken by the app.
     pub status: Option<String>,
 }
@@ -268,11 +274,14 @@ impl RefsView {
             pdf: None,
             reading: None,
             conflict: false,
+            gone: false,
             checked: Instant::now(),
             collapsed: HashSet::new(),
             naming: None,
             ctx: ctx.clone(),
             version: 0,
+            can_cite: false,
+            cite: None,
             status: None,
         };
         v.configure(cfg);
@@ -355,7 +364,10 @@ impl RefsView {
         let Ok(lib) = &mut self.lib else { return };
         match lib.save(false) {
             Ok(()) => {}
-            Err(SaveError::Conflict) => self.conflict = true,
+            Err(SaveError::Conflict) => {
+                self.conflict = true;
+                self.status = Some("Not saved: library.bib was changed by another program – open References (Ctrl+Shift+R) to choose which version to keep".into());
+            }
             Err(SaveError::Io(e)) => self.status = Some(format!("Could not save the library: {e}")),
         }
     }
@@ -454,9 +466,20 @@ impl RefsView {
         if self.conflict || !lib.changed_on_disk() {
             return;
         }
+        // a sync program may replace the file by deleting it first: keep what is loaded
+        // (the next save writes it again; the daily backup has the previous state)
+        if !lib.path().exists() {
+            if !self.gone {
+                self.gone = true;
+                self.status = Some("library.bib disappeared – keeping the loaded entries".into());
+            }
+            return;
+        }
+        self.gone = false;
         let editing = self.draft.as_ref().is_some_and(|d| d.changed.is_some());
         if lib.is_dirty() || editing {
             self.conflict = true;
+            self.status = Some("library.bib was changed by another program – open References (Ctrl+Shift+R) to choose which version to keep".into());
             return;
         }
         match lib.reload() {
@@ -1118,6 +1141,14 @@ impl RefsView {
             {
                 self.import_paths(&files);
             }
+            if self.can_cite && !self.selected.is_empty() {
+                let n = self.selected.len();
+                let label = if n == 1 { "Cite".to_string() } else { format!("Cite {n}") };
+                if ui.button(RichText::new(label).strong().color(pal.accent)).on_hover_text("Insert at the cursor of the open document; the entries are copied into the project's .bib").clicked() {
+                    self.apply_draft();
+                    self.cite = Some(self.selected.clone());
+                }
+            }
             if self.pending > 0 {
                 ui.spinner();
                 ui.label(RichText::new(format!("{} pending", self.pending)).small().color(pal.dim));
@@ -1244,7 +1275,7 @@ impl RefsView {
                     resp.dnd_set_drag_payload(drag_keys(i, &self.rows));
                 }
                 resp.context_menu(|ui| {
-                    if let Some(a) = row_menu(ui, v, &collections, in_collection.as_deref()) {
+                    if let Some(a) = row_menu(ui, v, &collections, in_collection.as_deref(), self.can_cite) {
                         menu = Some((i, a));
                     }
                 });
@@ -1293,6 +1324,9 @@ impl RefsView {
         let Ok(lib) = &mut self.lib else { return };
         match a {
             RowMenu::CopyKey => ctx.copy_text(keys.join(",")),
+            RowMenu::Cite => {
+                self.cite = Some(keys.to_vec());
+            }
             RowMenu::CopyCite => ctx.copy_text(format!("\\cite{{{}}}", keys.join(","))),
             RowMenu::CopyBib => {
                 let src: Vec<String> = keys.iter().filter_map(|k| lib.source(k)).collect();
@@ -1356,6 +1390,7 @@ impl RefsView {
             return;
         };
         let Ok(lib) = &self.lib else { return };
+        let can_cite = self.can_cite;
         let mut action: Option<DetailAction> = None;
         // widths come from the panel, not from the content (the panel would grow with it)
         let full = ui.available_width();
@@ -1549,7 +1584,11 @@ impl RefsView {
                     }
                     ui.add_space(10.0);
                     ui.horizontal_wrapped(|ui| {
-                        if ui.button("Copy \\cite").clicked() {
+                        if can_cite {
+                            if ui.button(RichText::new("Cite").strong()).on_hover_text("Insert at the cursor of the open document and copy the entry into the project's .bib").clicked() {
+                                action = Some(DetailAction::Cite);
+                            }
+                        } else if ui.button("Copy \\cite").on_hover_text("Open a project to cite directly").clicked() {
                             ui.ctx().copy_text(format!("\\cite{{{}}}", d.key));
                         }
                         if ui.button("Copy BibLaTeX").clicked() {
@@ -1606,6 +1645,11 @@ impl RefsView {
                 }
             }
             Some(DetailAction::Delete) => self.delete(&[key]),
+            Some(DetailAction::Cite) => {
+                self.apply_draft();
+                let key = self.draft.as_ref().map(|d| d.key.clone()).unwrap_or(key);
+                self.cite = Some(vec![key]);
+            }
             None => {}
         }
     }
@@ -1639,6 +1683,7 @@ impl RefsView {
 }
 
 enum DetailAction {
+    Cite,
     ApplySource,
     Attach,
     Detach(PathBuf, bool),
@@ -1648,6 +1693,7 @@ enum DetailAction {
 }
 
 enum RowMenu {
+    Cite,
     CopyKey,
     CopyCite,
     CopyBib,
@@ -1659,7 +1705,7 @@ enum RowMenu {
     Delete,
 }
 
-fn row_menu(ui: &mut egui::Ui, v: &EntryView, collections: &[String], current: Option<&str>) -> Option<RowMenu> {
+fn row_menu(ui: &mut egui::Ui, v: &EntryView, collections: &[String], current: Option<&str>, can_cite: bool) -> Option<RowMenu> {
     let mut a = None;
     let mut item = |ui: &mut egui::Ui, label: &str, m: RowMenu| {
         if ui.button(label).clicked() {
@@ -1667,6 +1713,9 @@ fn row_menu(ui: &mut egui::Ui, v: &EntryView, collections: &[String], current: O
             ui.close();
         }
     };
+    if can_cite {
+        item(ui, "Cite in Document", RowMenu::Cite);
+    }
     item(ui, "Copy \\cite{…}", RowMenu::CopyCite);
     item(ui, "Copy Key", RowMenu::CopyKey);
     item(ui, "Copy BibLaTeX", RowMenu::CopyBib);

@@ -79,6 +79,9 @@ enum Dialog {
     Sync { bib: PathBuf, items: Vec<lf_ref::project::SyncItem>, selected: usize },
 }
 
+/// A project `.bib` file: content hash, keys, (lower-case key, description).
+type ParsedBib = (u64, Vec<String>, Vec<(String, String)>);
+
 struct Workspace {
     project: Project,
     tree: Vec<FileNode>,
@@ -96,6 +99,9 @@ struct Workspace {
     bib_keys: Vec<String>,
     /// Project `.bib` entries: lower-case key → `Author (Year): Title`.
     bib_info: HashMap<String, String>,
+    /// Parsed `.bib` files by content hash: keys and descriptions (parsing every refresh
+    /// would cost time with large files).
+    bib_cache: HashMap<PathBuf, ParsedBib>,
     /// Changes when `bib_info` changes.
     bib_gen: u64,
     refs_at: Instant,
@@ -269,6 +275,7 @@ impl App {
             labels: Vec::new(),
             bib_keys: Vec::new(),
             bib_info: HashMap::new(),
+            bib_cache: HashMap::new(),
             bib_gen: 0,
             refs_at: Instant::now() - Duration::from_secs(60),
             history,
@@ -514,13 +521,19 @@ impl App {
         let resources: Vec<String> = if main.extension().is_some_and(|e| e == "md") {
             lf_md::front_matter(&text).bibliography.into_iter().collect()
         } else {
-            lf_ref::project::bib_resources(&text)
+            // the main file first, then included files (a separate preamble, …)
+            std::iter::once(text).chain(self.other_tex_files(&main).iter().filter_map(|f| self.project_text(f))).flat_map(|t| lf_ref::project::bib_resources(&t)).collect()
         };
         let dir = main.parent().map(Path::to_path_buf).unwrap_or_default();
         Some(match resources.first() {
             Some(r) => (dir.join(r.trim_start_matches("./")), true),
             None => (dir.join("refs.bib"), false),
         })
+    }
+
+    /// The project's `.tex` files except `main`.
+    fn other_tex_files(&self, main: &Path) -> Vec<PathBuf> {
+        self.ws.as_ref().map(|w| w.files.iter().filter(|f| f.extension().is_some_and(|e| e == "tex") && f.as_path() != main).cloned().collect()).unwrap_or_default()
     }
 
     /// Copies library entries the project does not have yet into its `.bib` file.
@@ -558,22 +571,32 @@ impl App {
         let Some(text) = self.project_text(&main) else { return };
         let dir = main.parent().unwrap_or(Path::new(""));
         let file = bib.strip_prefix(dir).unwrap_or(bib).to_string_lossy().replace('\\', "/");
-        let ins = if main.extension().is_some_and(|e| e == "md") {
-            if text.starts_with("---\n") { vec![(4, format!("bibliography: {file}\n"))] } else { vec![(0, format!("---\nbibliography: {file}\n---\n\n"))] }
+        // (file, byte offset, text)
+        let ins: Vec<(PathBuf, usize, String)> = if main.extension().is_some_and(|e| e == "md") {
+            let i = if text.starts_with("---\n") { (4, format!("bibliography: {file}\n")) } else { (0, format!("---\nbibliography: {file}\n---\n\n")) };
+            vec![(main.clone(), i.0, i.1)]
         } else {
-            lf_ref::project::add_bib_resource(&text, &file)
+            // biblatex may already be loaded in an included preamble
+            let paths: Vec<PathBuf> = std::iter::once(main.clone()).chain(self.other_tex_files(&main)).collect();
+            let texts: Vec<String> = paths.iter().map(|p| self.project_text(p).unwrap_or_default()).collect();
+            let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+            lf_ref::project::bib_setup(&refs, &file).into_iter().map(|(i, at, s)| (paths[i].clone(), at, s)).collect()
         };
         if ins.is_empty() {
             self.status = format!("No \\begin{{document}} in {} – add \\addbibresource{{{file}}} yourself", main.display());
             return;
         }
-        match self.insert_into(&main, &ins) {
-            Ok(()) => {
-                self.status = format!("{} now uses {file}", main.display());
-                self.compile();
+        let mut changed = Vec::new();
+        for target in ins.iter().map(|(p, _, _)| p.clone()).collect::<std::collections::BTreeSet<_>>() {
+            let list: Vec<(usize, String)> = ins.iter().filter(|(p, _, _)| *p == target).map(|(_, at, s)| (*at, s.clone())).collect();
+            if let Err(e) = self.insert_into(&target, &list) {
+                self.status = format!("Could not change {}: {e}", target.display());
+                return;
             }
-            Err(e) => self.status = format!("Could not change {}: {e}", main.display()),
+            changed.push(target.display().to_string());
         }
+        self.status = format!("{file} is now used ({} changed)", changed.join(", "));
+        self.compile();
     }
 
     /// Writes a whole project file: into its open buffer, else to disk.
@@ -843,12 +866,28 @@ impl App {
                 }
                 Some("bib") => {
                     if let Some(s) = read(f) {
-                        let bib = lf_ref::bib::parse(&s);
-                        let strings = bib.strings();
-                        for e in bib.entries() {
-                            info.entry(e.key.to_lowercase()).or_insert_with(|| lf_ref::library::view_of(e, &strings).describe());
+                        let hash = {
+                            use std::hash::{Hash, Hasher};
+                            let mut h = std::collections::hash_map::DefaultHasher::new();
+                            s.hash(&mut h);
+                            h.finish()
+                        };
+                        let cached = ws.bib_cache.get(f).filter(|c| c.0 == hash);
+                        let (k, i) = match cached {
+                            Some(c) => (c.1.clone(), c.2.clone()),
+                            None => {
+                                let bib = lf_ref::bib::parse(&s);
+                                let strings = bib.strings();
+                                let i: Vec<(String, String)> = bib.entries().map(|e| (e.key.to_lowercase(), lf_ref::library::view_of(e, &strings).describe())).collect();
+                                let k = bib.keys();
+                                ws.bib_cache.insert(f.clone(), (hash, k.clone(), i.clone()));
+                                (k, i)
+                            }
+                        };
+                        for (key, d) in i {
+                            info.entry(key).or_insert(d);
                         }
-                        keys.extend(bib.keys());
+                        keys.extend(k);
                     }
                 }
                 _ => {}
@@ -1035,12 +1074,20 @@ impl App {
 
         egui::Panel::top("top").frame(egui::Frame::new().fill(pal.panel).inner_margin(egui::Margin::symmetric(10, 6))).show(ui, |ui| self.top_bar(ui, &pal));
         egui::Panel::bottom("status").frame(egui::Frame::new().fill(pal.bg).inner_margin(egui::Margin::symmetric(10, 3))).show(ui, |ui| self.status_bar(ui, &pal));
+        let can_cite = self.ws.as_ref().is_some_and(|w| matches!(w.active.and_then(|a| w.docs.get(a)), Some(Doc::Text(_))));
         if self.refs_open
             && let Some(r) = &mut self.refs
         {
+            r.can_cite = can_cite;
             egui::CentralPanel::default().frame(egui::Frame::new().fill(pal.bg)).show(ui, |ui| r.ui(ui, &pal));
             if let Some(s) = r.status.take() {
                 self.status = s;
+            }
+            // "Cite" in the library: back to the document and cite there
+            if let Some(keys) = r.cite.take() {
+                self.refs_open = false;
+                let cmd = self.ws.as_ref().and_then(|w| w.project.meta.cite_command.clone()).unwrap_or_else(|| "cite".into());
+                self.cite(&keys, &cmd);
             }
         } else if self.ws.is_some() {
             self.workspace(ui, &pal);
@@ -2603,10 +2650,10 @@ impl App {
                 let md = main.ends_with(".md");
                 ui.label(format!("{main} does not use a bibliography file yet. The entries were written to {}.", bib.display()));
                 ui.add_space(4.0);
-                ui.label(RichText::new(if md { "Add `bibliography:` to the front matter?" } else { "Add \\addbibresource and \\printbibliography (biblatex with biber) to the main file?" }).color(pal.dim));
+                ui.label(RichText::new(if md { "Add `bibliography:` to the front matter?" } else { "Add \\addbibresource and \\printbibliography? Where biblatex is already loaded (also in an included preamble) it is used, a BibTeX setup gets \\bibliography, otherwise biblatex with biber is added." }).color(pal.dim));
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button(format!("Add to {main}")).clicked() || enter {
+                    if ui.button("Set up").clicked() || enter {
                         let b = bib.clone();
                         keep = false;
                         self.set_up_bibliography(&b);
