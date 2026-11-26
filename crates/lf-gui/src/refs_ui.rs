@@ -53,6 +53,10 @@ enum Done {
     Found { entry: Box<Entry>, what: String, attach: Option<PathBuf> },
     /// `id`: what a PDF was identified as, kept in the fallback entry.
     Failed { what: String, error: String, cancelled: bool, attach: Option<PathBuf>, id: Option<Identifier> },
+    /// A Zotero data directory was read.
+    Zotero(Box<Result<lf_ref::import::zotero::ZoteroData, String>>),
+    /// An attachment was copied into the library folder (Zotero import).
+    Copied { key: String, result: Result<PathBuf, String> },
 }
 
 /// Results of the running import batch, summarized when it ends.
@@ -61,6 +65,9 @@ struct Batch {
     added: Vec<String>,
     duplicates: Vec<String>,
     failed: Vec<String>,
+    /// Further lines of the summary (Zotero import).
+    notes: Vec<String>,
+    copied: usize,
 }
 
 /// One field in the editor.
@@ -579,12 +586,72 @@ impl RefsView {
                         self.batch.failed.push(format!("{what}: {error}"));
                     }
                 }
+                Done::Zotero(r) => match *r {
+                    Ok(data) => {
+                        let r = lf_ref::import::zotero::add_to_library(lib, &data);
+                        let mut note = format!("Zotero: {} entries added", r.added.len());
+                        if !r.duplicates.is_empty() {
+                            note.push_str(&format!(", {} already in the library", r.duplicates.len()));
+                        }
+                        if r.collections > 0 {
+                            note.push_str(&format!(", {} collections", r.collections));
+                        }
+                        if !data.missing_files.is_empty() {
+                            note.push_str(&format!(", {} attachment files not found (not synced or linked elsewhere)", data.missing_files.len()));
+                        }
+                        if data.standalone > 0 {
+                            note.push_str(&format!(", {} standalone notes/files skipped", data.standalone));
+                        }
+                        self.batch.notes.push(note);
+                        // copying PDFs can take long: on a worker thread
+                        if !r.files.is_empty() {
+                            self.pending += r.files.len();
+                            let (tx, ctx, dir, cancel) = (self.tx.clone(), self.ctx.clone(), lib.dir().to_path_buf(), self.cancel.clone());
+                            std::thread::spawn(move || {
+                                for (key, src) in r.files {
+                                    let result = if cancel.load(Ordering::Relaxed) { Err("cancelled".into()) } else { lf_ref::import::zotero::copy_file(&dir, &key, &src) };
+                                    if tx.send(Done::Copied { key, result }).is_err() {
+                                        return;
+                                    }
+                                    ctx.request_repaint();
+                                }
+                            });
+                        }
+                    }
+                    Err(e) => self.batch.failed.push(e),
+                },
+                Done::Copied { key, result } => match result.and_then(|p| lib.attach(&key, &p).map(|_| ())) {
+                    Ok(()) => self.batch.copied += 1,
+                    Err(e) if e == "cancelled" => {}
+                    Err(e) => self.batch.failed.push(format!("{key}: {e}")),
+                },
             }
-            self.persist();
+            // saving rewrites library.bib: while files are copied, every 50 files
+            if self.pending.is_multiple_of(50) {
+                self.persist();
+            } else {
+                self.rows_dirty = true;
+            }
             if self.pending == 0 {
                 self.finish_batch();
             }
         }
+    }
+
+    /// Imports a Zotero data directory (database read and files copied in the background).
+    pub fn import_zotero(&mut self, dir: PathBuf) {
+        if self.pending == 0 {
+            self.cancel.store(false, Ordering::Relaxed);
+            self.batch = Batch::default();
+        }
+        self.pending += 1;
+        self.say(format!("Reading {} …", dir.join("zotero.sqlite").display()));
+        let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
+        std::thread::spawn(move || {
+            let r = lf_ref::import::zotero::read(&dir);
+            let _ = tx.send(Done::Zotero(Box::new(r)));
+            ctx.request_repaint();
+        });
     }
 
     fn finish_batch(&mut self) {
@@ -597,8 +664,17 @@ impl RefsView {
         if !b.duplicates.is_empty() {
             parts.push(format!("already in the library: {}", b.duplicates.join(", ")));
         }
+        parts.extend(b.notes);
+        if b.copied > 0 {
+            parts.push(format!("{} file{} copied", b.copied, if b.copied == 1 { "" } else { "s" }));
+        }
         if !b.failed.is_empty() {
-            parts.push(b.failed.join("; "));
+            let n = b.failed.len();
+            let mut f: Vec<String> = b.failed.into_iter().take(3).collect();
+            if n > 3 {
+                f.push(format!("and {} more problems", n - 3));
+            }
+            parts.push(f.join("; "));
         }
         if parts.is_empty() {
             parts.push("Nothing imported".into());
@@ -1846,6 +1922,38 @@ mod tests {
         let sorted = t.elapsed();
         eprintln!("10k rows: all {all:?}, search {search:?}, sorted by title {sorted:?}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn zotero_import_copies_files_in_the_background() {
+        if std::process::Command::new("sqlite3").arg("-version").output().is_err() {
+            return;
+        }
+        let (mut v, dir) = view("zotero");
+        let z = dir.with_file_name(format!("{}-zotero", dir.file_name().unwrap().to_string_lossy()));
+        let _ = std::fs::remove_dir_all(&z);
+        std::fs::create_dir_all(z.join("storage/ATTA0001")).unwrap();
+        std::fs::write(z.join("storage/ATTA0001/Müller et al. - 2021 - Lorem.pdf"), b"%PDF-1.4").unwrap();
+        let sql = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../lf-ref/tests/fixtures/zotero/zotero.sql")).unwrap();
+        let mut c = std::process::Command::new("sqlite3").arg(z.join("zotero.sqlite")).stdin(std::process::Stdio::piped()).spawn().unwrap();
+        std::io::Write::write_all(&mut c.stdin.take().unwrap(), &sql).unwrap();
+        assert!(c.wait().unwrap().success());
+
+        v.import_zotero(z.clone());
+        wait(&mut v);
+        assert_eq!(lib(&v).len(), 5);
+        let files = lib(&v).files("mueller2021lorem");
+        assert_eq!(files.len(), 1);
+        assert!(files[0].is_file() && files[0].starts_with(dir.join("files/mueller2021lorem")));
+        let status = v.status.clone().unwrap();
+        assert!(status.contains("Zotero: 5 entries added, 4 collections") && status.contains("1 file copied"), "{status}");
+        // saved, with collections
+        let reopened = Library::open(&dir).unwrap();
+        assert_eq!(reopened.len(), 5);
+        assert_eq!(reopened.collections.keys("Thesis/Chapter 2", false), ["mueller2021lorem", "vaswani2017attention"]);
+        assert!(reopened.view("mueller2021lorem").unwrap().has_file);
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&z);
     }
 
     /// A valid one-page PDF without text.

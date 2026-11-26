@@ -1468,6 +1468,22 @@ impl App {
                 self.open_sync_dialog();
                 ui.close();
             }
+            if ui.button("Import from Zotero…").on_hover_text("Choose the Zotero data directory (with zotero.sqlite): items, notes, PDFs and collections").clicked() {
+                ui.close();
+                let default = lf_ref::import::zotero::default_dir();
+                let mut dialog = rfd::FileDialog::new().set_title("Zotero data directory");
+                if default.is_dir() {
+                    dialog = dialog.set_directory(&default);
+                }
+                if let Some(dir) = dialog.pick_folder() {
+                    if !self.refs_open {
+                        self.toggle_refs();
+                    }
+                    if let Some(r) = &mut self.refs {
+                        r.import_zotero(dir);
+                    }
+                }
+            }
             if ui.button("Import from File…").on_hover_text("PDFs, .bib or CSL-JSON (e.g. a Zotero export)").clicked() {
                 ui.close();
                 if let Some(files) = rfd::FileDialog::new().add_filter("PDF, BibTeX, CSL-JSON", &["pdf", "bib", "json", "txt"]).pick_files() {

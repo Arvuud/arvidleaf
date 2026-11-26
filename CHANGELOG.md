@@ -1,6 +1,27 @@
 # Changelog
 
-## Unveröffentlicht – arvidref (Literaturverwaltung), Meilensteine RF1–RF6
+## Unveröffentlicht – arvidref (Literaturverwaltung), Meilensteine RF1–RF7
+
+- **Import direkt aus Zotero** (RF7, *References › Import from Zotero…*, Ordner mit
+  `zotero.sqlite`, Standard `~/Zotero`):
+  - Gelesen wird eine Kopie der Datenbank über das Programm `sqlite3`. Zotero darf dabei
+    laufen und wird nie verändert.
+  - Einträge der eigenen Bibliothek mit Autoren/Herausgebern/Übersetzern, Tags, Notizen
+    (Absätze bleiben erhalten), Datum „hinzugefügt“ und Zitierschlüssel (Feld `citationKey`
+    oder `Citation Key:` im Feld Extra). Die Umsetzung folgt Zoteros eigener CSL-Zuordnung,
+    einschließlich typspezifischer Felder wie `bookTitle`, `university` und `thesisType`.
+  - Sammlungen samt Unterordnern. PDF- und andere Anhänge werden im Hintergrund nach
+    `files/<key>/` kopiert, Web-Schnappschüsse (HTML) übersprungen.
+  - Übersprungen werden außerdem: Papierkorb, Gruppenbibliotheken, Notizen und Dateien
+    ohne Eintrag. Fehlende Dateien (nicht synchronisiert, verknüpft) werden gezählt und
+    gemeldet. Schon vorhandene Werke werden nicht doppelt angelegt, bekommen aber die
+    Sammlungen und, falls sie noch keinen Anhang haben, die PDFs.
+  - Freie Datumsangaben wie „Sommer 2018“ werden zum Jahr, weil biblatex ISO-Daten
+    braucht. Das gilt auch für CSL-JSON-Importe.
+  - Gegenprobe: Testdatenbank (`tests/fixtures/zotero/zotero.sql`, Tabellen wie in Zoteros
+    `userdata.sql`) → Bibliothek → biber ohne Warnung
+    (`~/Documents/arvidleaf/test/arvidref-rf7`).
+- Die Werkzeugübersicht zeigt jetzt auch `sqlite3`.
 
 - **Abgleich Projekt ↔ Bibliothek** (RF6, *References › Sync Project .bib…*): Liste der
   Unterschiede mit Diff (Projekt − / Bibliothek +).

@@ -94,11 +94,28 @@ fn date(v: &J) -> Option<String> {
         }
         for k in ["raw", "literal"] {
             if let Some(s) = text(d, k) {
-                return Some(s);
+                return Some(edtf_or_year(&s));
             }
         }
     }
     None
+}
+
+/// biblatex needs ISO dates: `2017`, `2017-06`, `2017-06-12` stay, free text such as
+/// `Spring 2017` becomes its year (or stays if it has none).
+fn edtf_or_year(s: &str) -> String {
+    let iso = |t: &str| {
+        let parts: Vec<&str> = t.split('-').collect();
+        !parts.is_empty() && parts.len() <= 3 && parts[0].len() == 4 && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())) && parts[1..].iter().all(|p| p.len() == 2)
+    };
+    let t = s.trim();
+    if iso(t) {
+        return t.to_string();
+    }
+    let b = t.as_bytes();
+    (0..b.len().saturating_sub(3))
+        .find(|&i| b[i..i + 4].iter().all(u8::is_ascii_digit) && (i == 0 || !b[i - 1].is_ascii_digit()) && b.get(i + 4).is_none_or(|c| !c.is_ascii_digit()))
+        .map_or_else(|| t.to_string(), |i| t[i..i + 4].to_string())
 }
 
 const LANGUAGES: &[(&str, &str)] = &[("en", "english"), ("de", "ngerman"), ("fr", "french"), ("es", "spanish"), ("it", "italian"), ("nl", "dutch"), ("pt", "portuguese"), ("ru", "russian"), ("pl", "polish"), ("sv", "swedish"), ("da", "danish"), ("fi", "finnish"), ("no", "norsk"), ("nb", "norsk"), ("cs", "czech"), ("tr", "turkish"), ("el", "greek"), ("la", "latin"), ("ja", "japanese"), ("zh", "chinese")];

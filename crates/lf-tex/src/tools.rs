@@ -38,7 +38,7 @@ pub struct Tool {
 
 /// All tools with their status.
 pub fn check() -> Vec<Tool> {
-    let list: [(&str, &str, bool); 12] = [
+    let list: [(&str, &str, bool); 13] = [
         ("latexmk", "runs the compilation", true),
         ("pdflatex", "pdfLaTeX engine", true),
         ("xelatex", "XeLaTeX engine", false),
@@ -51,6 +51,7 @@ pub fn check() -> Vec<Tool> {
         ("kpsewhich", "package lookup", false),
         ("pdftotext", "find the DOI of an imported PDF", false),
         ("curl", "online import (DOI, arXiv, ISBN)", false),
+        ("sqlite3", "import from a Zotero data directory", false),
     ];
     list.iter().map(|(n, p, r)| Tool { name: n, purpose: p, required: *r, found: find(n).is_some() }).collect()
 }

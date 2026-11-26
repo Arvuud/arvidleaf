@@ -19,6 +19,7 @@ Version 0.1.0 – Prototyp. Änderungen: `CHANGELOG.md`. Plan und Anforderungen:
 | babel-Sprachen | z. B. Deutsch | `texlive-langgerman` |
 | `pdftotext` | DOI aus importierten PDFs lesen (optional) | `poppler` |
 | `curl` | Literatur per DOI, arXiv-ID oder ISBN holen (optional) | `curl` |
+| `sqlite3` | Import aus einem Zotero-Datenordner (optional) | `sqlite` |
 
 *Help › System Check* zeigt, was fehlt.
 
@@ -139,8 +140,11 @@ Rückfrage.
 **Einträge hinzufügen** (*View › References*, Strg+Umschalt+R):
 - DOI, arXiv-ID oder ISBN ins Feld oben eintippen oder in der Liste mit Strg+V einfügen.
   Abgefragt werden doi.org, arXiv, OpenLibrary und Crossref über `curl`, und nur dann.
-- BibTeX/BibLaTeX oder CSL-JSON einfügen oder als Datei importieren. Von Zotero geht das über
-  *Datei › Bibliothek exportieren* als „Better BibLaTeX“ oder „CSL JSON“.
+- Umstieg von Zotero: *References › Import from Zotero…* und den Zotero-Datenordner wählen
+  (Standard `~/Zotero`). Übernommen werden Einträge, Notizen, Tags, Sammlungen und
+  PDF-Anhänge. Gelesen wird nur eine Kopie der Datenbank, Zotero darf dabei offen sein.
+- BibTeX/BibLaTeX oder CSL-JSON einfügen oder als Datei importieren, z. B. einen
+  Zotero-Export („Better BibLaTeX“ oder „CSL JSON“).
 - PDFs auf das Fenster ziehen: Die DOI wird von der ersten Seite gelesen (`pdftotext`), das
   PDF wird angehängt.
 - Dubletten (gleiche DOI, arXiv-ID oder gleicher Titel und Jahr) werden gemeldet statt doppelt

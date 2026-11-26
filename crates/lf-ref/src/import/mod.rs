@@ -13,6 +13,7 @@ pub mod bibtex;
 pub mod csl;
 pub mod isbn;
 pub mod pdf;
+pub mod zotero;
 
 use crate::bib::{Entry, Value};
 use crate::library::{AddError, Library, normalize_arxiv, normalize_doi};
