@@ -44,6 +44,7 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
             ("Ctrl+F", "Find & replace in file"),
             ("Enter / Shift+Enter", "Next / previous match (in the find bar)"),
             ("Ctrl+Click", "Follow \\ref, \\cite, \\input, \\includegraphics"),
+            ("Ctrl+Shift+C", "Insert a citation from the library"),
             ("Tab", "Next argument after a template (\\frac{…}{…}), then behind it"),
         ],
     ),

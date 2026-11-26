@@ -24,11 +24,13 @@ pub struct ProjectMeta {
     pub shell_escape: bool,
     pub auto_compile: bool,
     pub open_files: Vec<String>,
+    /// Citation command last chosen in the cite dialog (`parencite` …).
+    pub cite_command: Option<String>,
 }
 
 impl Default for ProjectMeta {
     fn default() -> Self {
-        ProjectMeta { main: None, engine: Engine::Pdflatex, shell_escape: false, auto_compile: true, open_files: Vec::new() }
+        ProjectMeta { main: None, engine: Engine::Pdflatex, shell_escape: false, auto_compile: true, open_files: Vec::new(), cite_command: None }
     }
 }
 

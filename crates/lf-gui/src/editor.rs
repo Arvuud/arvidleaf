@@ -51,6 +51,8 @@ pub struct EditorDoc {
     pub needs_packages: Vec<String>,
     /// Completions the user picked (`kind:item`), for the usage statistics.
     pub picked: Vec<String>,
+    /// Library keys cited through completion; the app copies them into the project `.bib`.
+    pub needs_entries: Vec<String>,
     /// An input method is composing text (preedit shown); its commit then
     /// belongs to the text widget, which replaces the preedit.
     ime_composing: bool,
@@ -114,6 +116,8 @@ struct Completion {
     /// char index where the typed prefix starts
     start: usize,
     kind: Context,
+    /// Per item: comes from the reference library (not yet in the project).
+    library: Vec<bool>,
 }
 
 #[derive(Default)]
@@ -130,6 +134,10 @@ pub struct EditorEnv<'a> {
     pub problems: Vec<(u32, Level, String)>,
     pub labels: &'a [String],
     pub bib_keys: &'a [String],
+    /// Keys of the reference library (offered after the project's own keys).
+    pub lib_keys: &'a [String],
+    /// `Knuth (1984): The TeXbook` for project and library keys (lower-case keys).
+    pub cite_info: &'a std::collections::HashMap<String, String>,
     pub files: &'a [String],
     pub font_size: f32,
     pub vim: bool,
@@ -171,6 +179,7 @@ impl EditorDoc {
             vocab: None,
             needs_packages: Vec::new(),
             picked: Vec::new(),
+            needs_entries: Vec::new(),
             ime_composing: false,
             completed_at: None,
         }
@@ -440,6 +449,19 @@ impl EditorDoc {
 
         // ---- Ctrl+Click follows \ref, \cite, \input …
         let cmd_held = ui.input(|i| i.modifiers.command);
+        // hovering a citation key shows the entry
+        if !cmd_held
+            && let Some(p) = out.response.hover_pos()
+        {
+            let c = out.galley.cursor_from_pos(p - out.galley_pos);
+            if let Some(Link::Citation(k)) = link_at(&self.text, usize::from(c.index)) {
+                let info = env.cite_info.get(&k.to_lowercase()).cloned().unwrap_or_else(|| format!("{k}: not in the project's .bib files or the library"));
+                // at the pointer: below the widget would be below the whole editor
+                egui::Response::clone(&out.response).on_hover_ui_at_pointer(|ui| {
+                    ui.label(info);
+                });
+            }
+        }
         if cmd_held && let Some(p) = out.response.hover_pos() {
             let c = out.galley.cursor_from_pos(p - out.galley_pos);
             if link_at(&self.text, usize::from(c.index)).is_some() {
@@ -476,7 +498,7 @@ impl EditorDoc {
             if self.completion.is_some() {
                 let rect = out.galley.pos_from_cursor(CCursor::new(c));
                 let pos = out.galley_pos + rect.left_bottom().to_vec2() + egui::vec2(0.0, 2.0);
-                self.completion_popup(ui, pal, pos);
+                self.completion_popup(ui, pal, pos, env.cite_info);
             }
         } else if !has_focus {
             self.completion = None;
@@ -1229,6 +1251,7 @@ impl EditorDoc {
             }
         };
         const N: usize = 12;
+        let mut lib_from = usize::MAX;
         let items: Vec<String> = match &kind {
             Context::Command(_) => {
                 let all = complete::COMMANDS.iter().copied().chain(vocab.commands.keys().map(String::as_str));
@@ -1246,7 +1269,15 @@ impl EditorDoc {
                 }
             }
             Context::Label(_) => complete::rank_by(&prefix, env.labels.iter().map(String::as_str), score, N).into_iter().map(String::from).collect(),
-            Context::Citation(_) => complete::rank_by(&prefix, env.bib_keys.iter().map(String::as_str), score, N).into_iter().map(String::from).collect(),
+            Context::Citation(_) => {
+                // the project's keys first, then library keys it does not have yet
+                let mut items: Vec<String> = complete::rank_by(&prefix, env.bib_keys.iter().map(String::as_str), score, N).into_iter().map(String::from).collect();
+                let room = N.saturating_sub(items.len()).max(if prefix.is_empty() { 0 } else { 4 });
+                let in_project = |k: &str| env.bib_keys.iter().any(|p| p.eq_ignore_ascii_case(k));
+                lib_from = items.len();
+                items.extend(complete::rank_by(&prefix, env.lib_keys.iter().map(String::as_str).filter(|k| !in_project(k)), score, room).into_iter().map(String::from));
+                items
+            }
             Context::File(_) => complete::rank_by(&prefix, env.files.iter().map(String::as_str), score, N).into_iter().map(String::from).collect(),
         };
         if items.is_empty() {
@@ -1255,7 +1286,8 @@ impl EditorDoc {
         }
         let start = cursor - prefix.chars().count();
         let selected = self.completion.as_ref().filter(|c| c.start == start).map_or(0, |c| c.selected.min(items.len() - 1));
-        self.completion = Some(Completion { items, selected, start, kind });
+        let library = (0..items.len()).map(|i| i >= lib_from).collect();
+        self.completion = Some(Completion { items, selected, start, kind, library });
     }
 
     fn accept_completion(&mut self, ctx: &egui::Context, cursor: usize) {
@@ -1324,13 +1356,54 @@ impl EditorDoc {
                 }
             }
             _ => {
+                if c.library.get(c.selected).copied().unwrap_or(false) {
+                    self.needs_entries.push(item.clone());
+                }
                 let cur = c.start + item.chars().count();
                 self.splice(ctx, c.start, cursor, &item, cur);
             }
         }
     }
 
-    fn completion_popup(&mut self, ui: &mut egui::Ui, pal: &Palette, pos: egui::Pos2) {
+    /// Inserts several texts at byte offsets (ascending), keeping the cursor on its text.
+    pub fn insert_all(&mut self, ctx: &egui::Context, ins: &[(usize, String)]) {
+        for (at, s) in ins.iter().rev() {
+            self.insert_at(ctx, *at, s);
+        }
+    }
+
+    /// Cites `keys` at the cursor: added to the citation the cursor is in, else a new
+    /// `\cmd{…}` (`[@…]` in Markdown) is inserted. Returns false without a cursor.
+    pub fn insert_citation(&mut self, ctx: &egui::Context, cmd: &str, keys: &[String]) -> bool {
+        let Some(r) = self.cursor(ctx) else { return false };
+        let (a, b) = sorted(r);
+        let markdown = self.rel.extension().is_some_and(|e| e == "md");
+        let byte = byte_of_char(&self.text, b);
+        if a == b
+            && let Some(span) = lf_ref::project::cite_at(&self.text, byte)
+        {
+            let add = span.addition(keys);
+            if !add.is_empty() {
+                let at = self.text[..span.close].chars().count();
+                let cur = at + add.chars().count();
+                self.splice(ctx, at, at, &add, cur);
+            }
+            return true;
+        }
+        let mut ins = lf_ref::project::cite_text(cmd, keys, markdown);
+        // `word~\cite{…}` keeps the reference on the line of its word (not for `\textcite`,
+        // which starts a phrase)
+        let prev = self.text[..byte_of_char(&self.text, a)].chars().next_back();
+        if !markdown && !matches!(cmd, "textcite" | "Textcite" | "citet") && prev.is_some_and(|c| c.is_alphanumeric() || matches!(c, '.' | ',' | ')' | '}')) {
+            ins.insert(0, '~');
+        }
+        let cur = a + ins.chars().count();
+        self.splice(ctx, a, b, &ins, cur);
+        ctx.memory_mut(|m| m.request_focus(self.id()));
+        true
+    }
+
+    fn completion_popup(&mut self, ui: &mut egui::Ui, pal: &Palette, pos: egui::Pos2, cite_info: &std::collections::HashMap<String, String>) {
         let Some(c) = &mut self.completion else { return };
         let mut clicked = None;
         egui::Area::new(egui::Id::new(("completion", self.id))).order(egui::Order::Foreground).fade_in(false).fixed_pos(pos).show(ui.ctx(), |ui| {
@@ -1342,7 +1415,20 @@ impl EditorDoc {
                         _ => item.clone(),
                     };
                     let sel = i == c.selected;
-                    let r = ui.selectable_label(sel, RichText::new(label).monospace().color(if sel { pal.text } else { pal.dim }));
+                    let mut job = egui::text::LayoutJob::default();
+                    job.append(&label, 0.0, TextFormat::simple(FontId::monospace(13.0), if sel { pal.text } else { pal.dim }));
+                    if let Context::Citation(_) = c.kind {
+                        if let Some(info) = cite_info.get(&item.to_lowercase()) {
+                            let short: String = info.chars().take(48).collect();
+                            let dots = if short.len() < info.len() { "…" } else { "" };
+                            job.append(&format!("{short}{dots}"), 10.0, TextFormat::simple(FontId::proportional(11.5), pal.dim));
+                        }
+                        if c.library.get(i).copied().unwrap_or(false) {
+                            job.append("library", 10.0, TextFormat::simple(FontId::proportional(11.0), pal.accent2));
+                        }
+                    }
+                    job.wrap = egui::text::TextWrapping { max_width: 560.0, max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
+                    let r = ui.selectable_label(sel, job);
                     if r.clicked() {
                         clicked = Some(i);
                     }
@@ -2038,7 +2124,8 @@ mod tests {
             ..Default::default()
         };
         let mut out = ctx.run_ui(input, |ui| {
-            let env = EditorEnv { problems: Vec::new(), labels: &[], bib_keys: &[], files: &[], font_size: 13.0, vim: false, usage };
+            let info = std::collections::HashMap::new();
+            let env = EditorEnv { problems: Vec::new(), labels: &[], bib_keys: &[], lib_keys: &[], cite_info: &info, files: &[], font_size: 13.0, vim: false, usage };
             d.ui(ui, &pal, &env);
         });
         out.textures_delta.clear();
@@ -2442,6 +2529,33 @@ mod tests {
         d.insert_at(&ctx, 1, "XY");
         assert_eq!(d.text, "aXYb\ncd");
         assert_eq!(d.cursor(&ctx).map(sorted), Some((6, 6)));
+    }
+
+    #[test]
+    fn citations_are_inserted_or_extended() {
+        let keys = |k: &[&str]| k.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // after a word: `~\cite{…}`, cursor behind it
+        let (ctx, mut d) = editor("Transformers changed", 12, 12);
+        assert!(d.insert_citation(&ctx, "parencite", &keys(&["vaswani2017"])));
+        assert_eq!(d.text, "Transformers~\\parencite{vaswani2017} changed");
+        assert_eq!(d.cursor(&ctx).map(sorted), Some((36, 36)));
+        // \textcite starts a phrase, no tie
+        let (ctx, mut d) = editor("As ", 3, 3);
+        d.insert_citation(&ctx, "textcite", &keys(&["knuth"]));
+        assert_eq!(d.text, "As \\textcite{knuth}");
+        // inside an existing citation: only new keys are added
+        let (ctx, mut d) = editor("see \\cite{a, b} here", 12, 12);
+        d.insert_citation(&ctx, "cite", &keys(&["B", "c"]));
+        assert_eq!(d.text, "see \\cite{a, b,c} here");
+        // Markdown
+        let (ctx, mut d) = editor("x", 1, 1);
+        d.rel = "notes.md".into();
+        d.insert_citation(&ctx, "cite", &keys(&["a", "b"]));
+        assert_eq!(d.text, "x[@a; @b]");
+        let (ctx, mut d) = editor("as [@a] says", 6, 6);
+        d.rel = "notes.md".into();
+        d.insert_citation(&ctx, "cite", &keys(&["z"]));
+        assert_eq!(d.text, "as [@a; @z] says");
     }
 
     #[test]

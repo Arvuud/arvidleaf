@@ -1188,6 +1188,7 @@ dependencies = [
  "egui",
  "image",
  "lf-core",
+ "lf-md",
  "lf-pdf",
  "lf-ref",
  "lf-tex",

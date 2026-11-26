@@ -226,6 +226,8 @@ pub struct RefsView {
     /// Collection name being created or renamed: (old path or parent prefix, text, is_rename).
     naming: Option<(String, String, bool)>,
     ctx: egui::Context,
+    /// Counts changes to the library (for caches outside the view).
+    version: u64,
     /// Message for the status bar, taken by the app.
     pub status: Option<String>,
 }
@@ -263,6 +265,7 @@ impl RefsView {
             collapsed: HashSet::new(),
             naming: None,
             ctx: ctx.clone(),
+            version: 0,
             status: None,
         };
         v.configure(cfg);
@@ -291,11 +294,28 @@ impl RefsView {
                 self.status = Some(format!("library.bib: {} malformed entr{} kept as text (first at line {})", problems.len(), if problems.len() == 1 { "y" } else { "ies" }, problems[0].0));
             }
         }
+        self.version += 1;
         self.selected.clear();
         self.draft = None;
         self.undo.clear();
         self.filter = Filter::All;
         self.rows_dirty = true;
+    }
+
+    /// The library, if it could be opened.
+    pub fn library(&self) -> Option<&Library> {
+        self.lib.as_ref().ok()
+    }
+
+    /// Changes whenever the library changes.
+    pub fn version(&self) -> u64 {
+        self.version
+    }
+
+    /// Background work while the view is hidden: import results, changes on disk.
+    pub fn poll(&mut self) {
+        self.receive();
+        self.watch();
     }
 
     /// Writes pending edits (on exit).
@@ -315,6 +335,7 @@ impl RefsView {
 
     fn persist(&mut self) {
         self.rows_dirty = true;
+        self.version += 1;
         let Ok(lib) = &mut self.lib else { return };
         match lib.save(false) {
             Ok(()) => {}
@@ -425,6 +446,7 @@ impl RefsView {
         match lib.reload() {
             Ok(()) => {
                 self.status = Some("Library reloaded – library.bib was changed by another program".into());
+                self.version += 1;
                 self.selected.retain(|k| lib.contains(k));
                 self.rows_dirty = true;
                 self.load_draft();
@@ -803,6 +825,7 @@ impl RefsView {
                             self.draft = None;
                             self.load_draft();
                             self.status = Some("Library reloaded".into());
+                            self.version += 1;
                         }
                         Err(e) => self.status = Some(format!("Cannot reload: {e}")),
                     }

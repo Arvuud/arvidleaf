@@ -9,6 +9,7 @@ lf-tex.workspace = true
 lf-pdf.workspace = true
 lf-core.workspace = true
 lf-ref.workspace = true
+lf-md.workspace = true
 eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui = { version = "0.37", features = ["monochrome_emoji_fonts"] }
 rfd = "0.17"

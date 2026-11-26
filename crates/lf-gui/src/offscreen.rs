@@ -21,6 +21,8 @@ struct Tex {
 #[derive(Clone, Debug)]
 pub enum Action {
     Click(f32, f32),
+    /// Pointer moves without a button (hover, tooltips).
+    Move(f32, f32),
     DoubleClick(f32, f32),
     Drag(f32, f32, f32, f32),
     Key(egui::Key, egui::Modifiers),
@@ -61,6 +63,7 @@ fn events_for(a: &Action, phase: usize) -> Vec<egui::Event> {
             let p = egui::pos2(*x, *y);
             vec![egui::Event::PointerMoved(p), btn(p, true), btn(p, false)]
         }
+        Action::Move(x, y) => vec![egui::Event::PointerMoved(egui::pos2(*x, *y))],
         Action::DoubleClick(x, y) => {
             let p = egui::pos2(*x, *y);
             vec![egui::Event::PointerMoved(p), btn(p, true), btn(p, false), btn(p, true), btn(p, false)]

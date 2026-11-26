@@ -12,7 +12,7 @@ fn usage() {
          \n                          its PDF is written next to it), print problems, exit\
          \n    -o, --output out.pdf  write the PDF there instead\
          \n  --screenshot out.png    render the UI offscreen [--size WxH] [--frames N] [--light]\
-         \n                          [--click F:X,Y] [--dclick F:X,Y] [--drag F:X0,Y0,X1,Y1]\
+         \n                          [--click F:X,Y] [--dclick F:X,Y] [--move F:X,Y] [--drag F:X0,Y0,X1,Y1]\
          \n                          [--type F:text] [--key F:Ctrl+Enter]\
          \n  --version               print the version\n  -h, --help              this help"
     );
@@ -107,7 +107,7 @@ fn screenshot(args: &[String]) -> i32 {
             }
             "--frames" => frames = next(&mut i).parse().unwrap_or(40),
             "--light" => dark = false,
-            k @ ("--click" | "--dclick" | "--drag") => {
+            k @ ("--click" | "--dclick" | "--drag" | "--move") => {
                 let k = k.to_string();
                 let s = next(&mut i);
                 let (f, rest) = s.split_once(':').unwrap_or(("0", "0,0"));
@@ -115,6 +115,7 @@ fn screenshot(args: &[String]) -> i32 {
                 let f: usize = f.parse().unwrap_or(0);
                 let a = match (k.as_str(), v.as_slice()) {
                     ("--click", [x, y, ..]) => Action::Click(*x, *y),
+                    ("--move", [x, y, ..]) => Action::Move(*x, *y),
                     ("--dclick", [x, y, ..]) => Action::DoubleClick(*x, *y),
                     ("--drag", [a, b, c, d, ..]) => Action::Drag(*a, *b, *c, *d),
                     _ => {

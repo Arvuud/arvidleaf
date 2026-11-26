@@ -399,6 +399,20 @@ fn match_score(field: &str, term: &str) -> Option<u32> {
     Some(if word_start { 2 } else { 1 })
 }
 
+/// The list row of an entry (for entries outside the library, e.g. in a project `.bib`).
+pub fn view_of(e: &Entry, strings: &Strings) -> EntryView {
+    index_entry(e, strings).view
+}
+
+impl EntryView {
+    /// `Knuth (1984): The TeXbook` – for tooltips and completion.
+    pub fn describe(&self) -> String {
+        let who = if self.authors.is_empty() { "Anonymous" } else { &self.authors };
+        let year = if self.year.is_empty() { String::new() } else { format!(" ({})", self.year) };
+        format!("{who}{year}: {}", self.title)
+    }
+}
+
 pub const ADDED: &str = "x-arvidref-added";
 pub const MODIFIED: &str = "x-arvidref-modified";
 

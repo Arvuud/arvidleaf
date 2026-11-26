@@ -1,5 +1,6 @@
 //! Main window: start screen, project workspace, menus, compile orchestration.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -70,6 +71,10 @@ enum Dialog {
     Shortcuts { query: String },
     SystemCheck,
     About,
+    /// Insert citations from the library.
+    Cite { query: String, searched: Option<String>, results: Vec<String>, selected: usize, checked: Vec<String>, cmd: String },
+    /// The document has no bibliography yet; entries went to `bib`.
+    BibSetup { bib: PathBuf },
 }
 
 struct Workspace {
@@ -87,6 +92,10 @@ struct Workspace {
     outline: Vec<Heading>,
     labels: Vec<String>,
     bib_keys: Vec<String>,
+    /// Project `.bib` entries: lower-case key → `Author (Year): Title`.
+    bib_info: HashMap<String, String>,
+    /// Changes when `bib_info` changes.
+    bib_gen: u64,
     refs_at: Instant,
     history: Arc<History>,
     history_view: Option<HistoryView>,
@@ -120,6 +129,11 @@ pub struct App {
     refs: Option<RefsView>,
     /// The References view replaces the start screen or workspace.
     refs_open: bool,
+    /// Library keys and descriptions of library and project entries for the editor,
+    /// rebuilt when either changes.
+    lib_keys: Vec<String>,
+    cite_info: HashMap<String, String>,
+    cite_stamp: (u64, u64),
 }
 
 /// Opens a file or folder with the desktop's default application.
@@ -174,6 +188,9 @@ impl App {
             usage: lf_core::usage::Usage::load(),
             refs: None,
             refs_open: false,
+            lib_keys: Vec::new(),
+            cite_info: HashMap::new(),
+            cite_stamp: (u64::MAX, u64::MAX),
         };
         let missing: Vec<&str> = app.tools.iter().filter(|t| t.required && !t.found).map(|t| t.name).collect();
         if !missing.is_empty() {
@@ -249,6 +266,8 @@ impl App {
             outline: Vec::new(),
             labels: Vec::new(),
             bib_keys: Vec::new(),
+            bib_info: HashMap::new(),
+            bib_gen: 0,
             refs_at: Instant::now() - Duration::from_secs(60),
             history,
             history_view: None,
@@ -282,6 +301,8 @@ impl App {
             ws.active = ws.docs.iter().position(|d| Some(d.rel().to_string_lossy().to_string()) == ws.project.meta.main).or(ws.active);
         }
         self.refresh_refs(true);
+        // the library is needed for \cite completion and the cite dialog
+        self.ensure_refs();
         if self.ws.as_ref().is_some_and(|w| w.project.meta.auto_compile) {
             self.compile();
         }
@@ -397,12 +418,205 @@ impl App {
         let Some(Doc::Text(d)) = ws.active.and_then(|a| ws.docs.get_mut(a)) else { return };
         let picked = std::mem::take(&mut d.picked);
         let packages = std::mem::take(&mut d.needs_packages);
+        let entries = std::mem::take(&mut d.needs_entries);
         for k in picked {
             self.usage.record(&k);
         }
         for p in packages {
             self.ensure_package(&p);
         }
+        if !entries.is_empty() {
+            self.add_to_project_bib(&entries);
+        }
+    }
+
+    // ------------------------------------------------------------ citations
+
+    /// Loads the reference library (without showing it). False if it cannot be opened.
+    fn ensure_refs(&mut self) -> bool {
+        if self.refs.is_none() {
+            self.refs = Some(RefsView::new(&self.ctx, &self.cfg));
+        }
+        self.refs.as_ref().and_then(|r| r.library()).is_some()
+    }
+
+    /// Library keys and entry descriptions for completion and hover.
+    fn update_cite_cache(&mut self) {
+        let stamp = (self.refs.as_ref().map_or(0, |r| r.version() + 1), self.ws.as_ref().map_or(0, |w| w.bib_gen + 1));
+        if stamp == self.cite_stamp {
+            return;
+        }
+        self.cite_stamp = stamp;
+        let mut keys = Vec::new();
+        let mut info = HashMap::new();
+        if let Some(lib) = self.refs.as_ref().and_then(|r| r.library()) {
+            for v in lib.views() {
+                keys.push(v.key.clone());
+                info.insert(v.key.to_lowercase(), v.describe());
+            }
+        }
+        // the project's version of an entry is what gets cited
+        if let Some(ws) = &self.ws {
+            info.extend(ws.bib_info.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
+        self.lib_keys = keys;
+        self.cite_info = info;
+    }
+
+    /// A project file from its editor buffer, else from disk.
+    fn project_text(&self, rel: &Path) -> Option<String> {
+        let ws = self.ws.as_ref()?;
+        ws.docs
+            .iter()
+            .find_map(|d| match d {
+                Doc::Text(t) if t.rel == rel => Some(t.text.clone()),
+                _ => None,
+            })
+            .or_else(|| std::fs::read_to_string(ws.project.root.join(rel)).ok())
+    }
+
+    /// Inserts texts (byte offsets ascending) into a project file: into the open buffer
+    /// (the cursor stays) or on disk (the file is created if needed).
+    fn insert_into(&mut self, rel: &Path, ins: &[(usize, String)]) -> Result<(), String> {
+        let ctx = self.ctx.clone();
+        let current = self.project_text(rel).unwrap_or_default();
+        let ws = self.ws.as_mut().ok_or("no project")?;
+        if let Some(doc) = ws.docs.iter_mut().find_map(|d| match d {
+            Doc::Text(t) if t.rel == rel => Some(t),
+            _ => None,
+        }) {
+            doc.insert_all(&ctx, ins);
+            return Ok(());
+        }
+        let mut t = current;
+        for (at, s) in ins.iter().rev() {
+            t.insert_str((*at).min(t.len()), s);
+        }
+        let abs = ws.project.root.join(rel);
+        if let Some(dir) = abs.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        lf_core::write_atomic(&abs, t.as_bytes()).map_err(|e| e.to_string())?;
+        if ws.project.meta.auto_compile {
+            ws.compile_due = Some(Instant::now());
+        }
+        self.rescan();
+        Ok(())
+    }
+
+    /// The `.bib` file new entries go to (relative to the project) and whether the document
+    /// already uses it. Without one, `refs.bib` next to the main file.
+    fn project_bib(&self) -> Option<(PathBuf, bool)> {
+        let main = PathBuf::from(self.ws.as_ref()?.project.meta.main.clone()?);
+        let text = self.project_text(&main)?;
+        let resources: Vec<String> = if main.extension().is_some_and(|e| e == "md") {
+            lf_md::front_matter(&text).bibliography.into_iter().collect()
+        } else {
+            lf_ref::project::bib_resources(&text)
+        };
+        let dir = main.parent().map(Path::to_path_buf).unwrap_or_default();
+        Some(match resources.first() {
+            Some(r) => (dir.join(r.trim_start_matches("./")), true),
+            None => (dir.join("refs.bib"), false),
+        })
+    }
+
+    /// Copies library entries the project does not have yet into its `.bib` file.
+    fn add_to_project_bib(&mut self, keys: &[String]) {
+        if !self.ensure_refs() {
+            self.status = "The reference library could not be opened".into();
+            return;
+        }
+        let Some((bib, configured)) = self.project_bib() else {
+            self.status = "Set a main file first (right-click it in the file panel)".into();
+            return;
+        };
+        let lib = self.refs.as_ref().and_then(|r| r.library()).unwrap();
+        let entries: Vec<lf_ref::Entry> = keys.iter().filter_map(|k| lib.entry(k).cloned()).collect();
+        let text = self.project_text(&bib).unwrap_or_default();
+        let (add, added) = lf_ref::project::entries_to_append(&text, &entries);
+        if !added.is_empty() {
+            match self.insert_into(&bib, &[(text.len(), add)]) {
+                Ok(()) => self.status = format!("Added {} to {}", added.join(", "), bib.display()),
+                Err(e) => {
+                    self.status = format!("Could not write {}: {e}", bib.display());
+                    return;
+                }
+            }
+            self.refresh_refs(true);
+        }
+        if !configured && !added.is_empty() {
+            self.dialog = Some(Dialog::BibSetup { bib });
+        }
+    }
+
+    /// Makes the main file use `bib` (biblatex setup, or the Markdown front matter).
+    fn set_up_bibliography(&mut self, bib: &Path) {
+        let Some(main) = self.ws.as_ref().and_then(|w| w.project.meta.main.clone()).map(PathBuf::from) else { return };
+        let Some(text) = self.project_text(&main) else { return };
+        let dir = main.parent().unwrap_or(Path::new(""));
+        let file = bib.strip_prefix(dir).unwrap_or(bib).to_string_lossy().replace('\\', "/");
+        let ins = if main.extension().is_some_and(|e| e == "md") {
+            if text.starts_with("---\n") { vec![(4, format!("bibliography: {file}\n"))] } else { vec![(0, format!("---\nbibliography: {file}\n---\n\n"))] }
+        } else {
+            lf_ref::project::add_bib_resource(&text, &file)
+        };
+        if ins.is_empty() {
+            self.status = format!("No \\begin{{document}} in {} – add \\addbibresource{{{file}}} yourself", main.display());
+            return;
+        }
+        match self.insert_into(&main, &ins) {
+            Ok(()) => {
+                self.status = format!("{} now uses {file}", main.display());
+                self.compile();
+            }
+            Err(e) => self.status = format!("Could not change {}: {e}", main.display()),
+        }
+    }
+
+    fn open_cite_dialog(&mut self) {
+        let Some(ws) = &self.ws else { return };
+        if !matches!(ws.active.and_then(|a| ws.docs.get(a)), Some(Doc::Text(_))) {
+            self.status = "Open a .tex or .md file to cite into".into();
+            return;
+        }
+        let cmd = ws.project.meta.cite_command.clone().unwrap_or_else(|| "cite".into());
+        self.ensure_refs();
+        self.dialog = Some(Dialog::Cite { query: String::new(), searched: None, results: Vec::new(), selected: 0, checked: Vec::new(), cmd });
+    }
+
+    /// Keys for the cite dialog: library matches, then project-only entries that match.
+    fn cite_search(&self, query: &str) -> Vec<String> {
+        let mut out: Vec<String> = self.refs.as_ref().and_then(|r| r.library()).map(|l| l.search(query).into_iter().take(300).map(String::from).collect()).unwrap_or_default();
+        if let Some(ws) = &self.ws {
+            let words: Vec<String> = query.split_whitespace().map(|w| lf_ref::latex::strip_accents(w).to_lowercase()).collect();
+            for k in &ws.bib_keys {
+                if out.iter().any(|o| o.eq_ignore_ascii_case(k)) {
+                    continue;
+                }
+                let hay = lf_ref::latex::strip_accents(&format!("{k} {}", ws.bib_info.get(&k.to_lowercase()).map_or("", |s| s.as_str()))).to_lowercase();
+                if words.iter().all(|w| hay.contains(w.as_str())) {
+                    out.push(k.clone());
+                }
+            }
+        }
+        out
+    }
+
+    /// Inserts citations into the active document and copies the entries into the project.
+    fn cite(&mut self, keys: &[String], cmd: &str) {
+        let ctx = self.ctx.clone();
+        let Some(ws) = &mut self.ws else { return };
+        if ws.project.meta.cite_command.as_deref() != Some(cmd) {
+            ws.project.meta.cite_command = Some(cmd.to_string());
+            let _ = ws.project.save_meta();
+        }
+        let Some(Doc::Text(d)) = ws.active.and_then(|a| ws.docs.get_mut(a)) else { return };
+        if !d.insert_citation(&ctx, cmd, keys) {
+            self.status = "Place the cursor in the editor first".into();
+            return;
+        }
+        self.add_to_project_bib(keys);
     }
 
     /// Adds `\usepackage{pkg}` to the preamble unless a file of the project
@@ -531,6 +745,7 @@ impl App {
         let read = |p: &Path| -> Option<String> { buffers.iter().find(|(r, _)| r == p).map(|(_, t)| t.clone()).or_else(|| std::fs::read_to_string(root.join(p)).ok()) };
         let mut labels = Vec::new();
         let mut keys = Vec::new();
+        let mut info = HashMap::new();
         for f in &ws.files {
             match f.extension().and_then(|e| e.to_str()) {
                 Some("tex") => {
@@ -540,7 +755,12 @@ impl App {
                 }
                 Some("bib") => {
                     if let Some(s) = read(f) {
-                        keys.extend(lf_ref::bib::parse(&s).keys());
+                        let bib = lf_ref::bib::parse(&s);
+                        let strings = bib.strings();
+                        for e in bib.entries() {
+                            info.entry(e.key.to_lowercase()).or_insert_with(|| lf_ref::library::view_of(e, &strings).describe());
+                        }
+                        keys.extend(bib.keys());
                     }
                 }
                 _ => {}
@@ -552,6 +772,10 @@ impl App {
         keys.dedup();
         ws.labels = labels;
         ws.bib_keys = keys;
+        if info != ws.bib_info {
+            ws.bib_info = info;
+            ws.bib_gen += 1;
+        }
         ws.outline = match ws.project.main_rel() {
             Some(m) => lf_tex::outline::project_outline(&root, &m, &read),
             None => Vec::new(),
@@ -702,6 +926,15 @@ impl App {
         self.autosave();
         self.watch();
         self.refresh_refs(false);
+        if let Some(r) = &mut self.refs
+            && !self.refs_open
+        {
+            r.poll();
+            if let Some(s) = r.status.take() {
+                self.status = s;
+            }
+        }
+        self.update_cite_cache();
         if let Some(ws) = &mut self.ws
             && ws.compile_due.is_some_and(|t| t.elapsed() > Duration::from_millis(300)) {
                 self.compile();
@@ -874,6 +1107,9 @@ impl App {
         if search {
             self.dialog = Some(Dialog::Search { query: String::new(), results: Vec::new(), searched: false });
         }
+        if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(Key::C)) {
+            self.open_cite_dialog();
+        }
         if history {
             self.toggle_history();
         }
@@ -980,6 +1216,10 @@ impl App {
                     }
                     if ui.button("Go to File…    Ctrl+P").clicked() {
                         self.dialog = Some(Dialog::QuickOpen { query: String::new(), selected: 0 });
+                        ui.close();
+                    }
+                    if ui.button("Insert Citation…    Ctrl+Shift+C").clicked() {
+                        self.open_cite_dialog();
                         ui.close();
                     }
                     ui.separator();
@@ -1128,6 +1368,11 @@ impl App {
             let label = if self.refs_open { "Hide Library    Ctrl+Shift+R" } else { "Show Library    Ctrl+Shift+R" };
             if ui.button(label).clicked() {
                 self.toggle_refs();
+                ui.close();
+            }
+            if ui.add_enabled(self.ws.is_some(), egui::Button::new("Insert Citation…    Ctrl+Shift+C")).clicked() {
+                self.refs_open = false;
+                self.open_cite_dialog();
                 ui.close();
             }
             if ui.button("Import from File…").on_hover_text("PDFs, .bib or CSL-JSON (e.g. a Zotero export)").clicked() {
@@ -1611,7 +1856,7 @@ impl App {
                     })
                     .map(|e| (e.line.unwrap(), e.level, e.message.clone()))
                     .collect();
-                let env = EditorEnv { problems, labels: &ws.labels, bib_keys: &ws.bib_keys, files: &files, font_size, vim, usage };
+                let env = EditorEnv { problems, labels: &ws.labels, bib_keys: &ws.bib_keys, lib_keys: &self.lib_keys, cite_info: &self.cite_info, files: &files, font_size, vim, usage };
                 d.ui(ui, pal, &env)
             }
             Doc::Image(im) => {
@@ -1713,8 +1958,16 @@ impl App {
     }
 
     fn problems_panel(&mut self, ui: &mut egui::Ui, pal: &Palette) {
+        let lib = self.refs.as_ref().and_then(|r| r.library());
         let Some(ws) = &mut self.ws else { return };
         let mut goto = None;
+        let mut from_library: Vec<String> = Vec::new();
+        // undefined citations that the library can fill
+        let fillable = |k: &str| lib.is_some_and(|l| l.contains(k)) && !ws.bib_keys.iter().any(|b| b.eq_ignore_ascii_case(k));
+        let mut missing_keys: Vec<String> = ws.last.as_ref().map(|l| l.entries.iter().filter_map(|e| lf_ref::project::undefined_citation(&e.message)).collect()).unwrap_or_default();
+        missing_keys.sort();
+        missing_keys.dedup();
+        missing_keys.retain(|k| fillable(k));
         ui.horizontal(|ui| {
             ui.label(RichText::new("Problems").strong());
             if let Some(l) = &ws.last {
@@ -1734,6 +1987,17 @@ impl App {
             ui.label(RichText::new("Not compiled yet.").color(pal.dim));
             return;
         };
+        if !missing_keys.is_empty() {
+            egui::Frame::new().fill(pal.accent.gamma_multiply(0.12)).corner_radius(6).inner_margin(6).show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    let n = missing_keys.len();
+                    ui.label(format!("{n} undefined citation{} {} in your library: {}", if n == 1 { "" } else { "s" }, if n == 1 { "is" } else { "are" }, missing_keys.join(", ")));
+                    if ui.button("Add from library").on_hover_text("Copies the entries into the project's .bib and recompiles").clicked() {
+                        from_library = missing_keys.clone();
+                    }
+                });
+            });
+        }
         for m in &l.missing {
             egui::Frame::new().fill(pal.error.gamma_multiply(0.12)).corner_radius(6).inner_margin(6).show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
@@ -1763,6 +2027,10 @@ impl App {
             egui::ScrollArea::both().id_salt("raw-log").auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
                 ui.add(egui::TextEdit::multiline(&mut log).font(egui::TextStyle::Monospace).desired_width(f32::INFINITY).interactive(true));
             });
+            if !from_library.is_empty() {
+                self.add_to_project_bib(&from_library);
+                self.compile();
+            }
             return;
         }
         egui::ScrollArea::vertical().id_salt("problems").auto_shrink([false, false]).show(ui, |ui| {
@@ -1792,6 +2060,11 @@ impl App {
                     .horizontal(|ui| {
                         ui.label(RichText::new(sym).color(col));
                         ui.label(RichText::new(&loc).monospace().small().color(pal.accent));
+                        if let Some(k) = lf_ref::project::undefined_citation(&e.message).filter(|k| missing_keys.contains(k))
+                            && ui.small_button("Add from library").clicked()
+                        {
+                            from_library.push(k);
+                        }
                         ui.add(egui::Label::new(&e.message).truncate());
                     })
                     .response;
@@ -1815,6 +2088,10 @@ impl App {
         });
         if let Some((rel, line)) = goto {
             self.open_at(&rel, line);
+        }
+        if !from_library.is_empty() {
+            self.add_to_project_bib(&from_library);
+            self.compile();
         }
     }
 
@@ -1977,6 +2254,123 @@ impl App {
                         }
                     }
                     if ui.button("Cancel").clicked() || esc {
+                        keep = false;
+                    }
+                });
+            }
+            Dialog::Cite { query, searched, results, selected, checked, cmd } => {
+                ui.set_width(720.0);
+                let markdown = self.ws.as_ref().and_then(|w| w.active.and_then(|a| w.docs.get(a))).is_some_and(|d| d.rel().extension().is_some_and(|e| e == "md"));
+                ui.horizontal(|ui| {
+                    ui.heading("Insert Citation");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if markdown {
+                            ui.label(RichText::new("Markdown: [@key]").small().color(pal.dim));
+                        } else {
+                            egui::ComboBox::from_id_salt("cite-cmd").selected_text(format!("\\{cmd}")).width(120.0).show_ui(ui, |ui| {
+                                for c in lf_ref::project::CITE_COMMANDS {
+                                    ui.selectable_value(cmd, c.to_string(), format!("\\{c}"));
+                                }
+                            });
+                        }
+                    });
+                });
+                let r = ui.add(egui::TextEdit::singleline(query).hint_text("Search author, title, year, key …").desired_width(f32::INFINITY));
+                r.request_focus();
+                if searched.as_deref() != Some(query.as_str()) {
+                    *results = self.cite_search(query);
+                    *searched = Some(query.clone());
+                    *selected = 0;
+                }
+                if ui.input(|i| i.key_pressed(Key::ArrowDown)) {
+                    *selected = (*selected + 1).min(results.len().saturating_sub(1));
+                }
+                if ui.input(|i| i.key_pressed(Key::ArrowUp)) {
+                    *selected = selected.saturating_sub(1);
+                }
+                // Ctrl+Space marks the highlighted entry for a multiple citation
+                if ui.input(|i| i.modifiers.command && i.key_pressed(Key::Space))
+                    && let Some(k) = results.get(*selected)
+                {
+                    match checked.iter().position(|c| c == k) {
+                        Some(p) => {
+                            checked.remove(p);
+                        }
+                        None => checked.push(k.clone()),
+                    }
+                }
+                let in_project: Vec<String> = self.ws.as_ref().map(|w| w.bib_keys.iter().map(|k| k.to_lowercase()).collect()).unwrap_or_default();
+                let mut pick: Option<Vec<String>> = None;
+                let row_h = 22.0;
+                egui::ScrollArea::vertical().max_height(380.0).auto_shrink([false, true]).show_rows(ui, row_h, results.len(), |ui, range| {
+                    for i in range {
+                        let k = &results[i];
+                        ui.horizontal(|ui| {
+                            ui.set_height(row_h);
+                            let mut on = checked.contains(k);
+                            if ui.checkbox(&mut on, "").on_hover_text("Cite several (Ctrl+Space)").changed() {
+                                if on {
+                                    checked.push(k.clone());
+                                } else {
+                                    checked.retain(|c| c != k);
+                                }
+                            }
+                            let info = self.cite_info.get(&k.to_lowercase()).cloned().unwrap_or_default();
+                            let mut job = egui::text::LayoutJob::default();
+                            job.append(k, 0.0, egui::TextFormat::simple(egui::FontId::monospace(12.5), pal.text));
+                            job.append(&info, 12.0, egui::TextFormat::simple(egui::FontId::proportional(13.0), pal.dim));
+                            if in_project.contains(&k.to_lowercase()) {
+                                job.append("in project", 12.0, egui::TextFormat::simple(egui::FontId::proportional(11.0), pal.accent2));
+                            }
+                            job.wrap = egui::text::TextWrapping { max_width: ui.available_width(), max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
+                            let r = ui.selectable_label(i == *selected, job);
+                            if r.clicked() {
+                                *selected = i;
+                            }
+                            if r.double_clicked() {
+                                pick = Some(vec![k.clone()]);
+                            }
+                        });
+                    }
+                });
+                if results.is_empty() {
+                    let empty = self.refs.as_ref().and_then(|r| r.library()).is_none_or(|l| l.is_empty());
+                    ui.label(RichText::new(if empty { "The library is empty – add references in View › References (Ctrl+Shift+R)." } else { "No matching entries." }).color(pal.dim));
+                }
+                ui.separator();
+                ui.horizontal(|ui| {
+                    let n = if checked.is_empty() { usize::from(!results.is_empty()) } else { checked.len() };
+                    let label = if n > 1 { format!("Cite {n} entries") } else { "Cite".to_string() };
+                    if ui.add_enabled(n > 0, egui::Button::new(label)).clicked() || (enter && n > 0) {
+                        pick = Some(if checked.is_empty() { results.get(*selected).cloned().into_iter().collect() } else { checked.clone() });
+                    }
+                    if ui.button("Cancel").clicked() || esc {
+                        keep = false;
+                    }
+                    ui.label(RichText::new("Enter cites · Ctrl+Space or the boxes: several · entries are copied into the project's .bib").small().color(pal.dim));
+                });
+                if let Some(keys) = pick.filter(|k| !k.is_empty()) {
+                    let c = if markdown { "cite".to_string() } else { cmd.clone() };
+                    keep = false;
+                    self.cite(&keys, &c);
+                }
+            }
+            Dialog::BibSetup { bib } => {
+                ui.set_width(460.0);
+                ui.heading("Set Up the Bibliography");
+                let main = self.ws.as_ref().and_then(|w| w.project.meta.main.clone()).unwrap_or_default();
+                let md = main.ends_with(".md");
+                ui.label(format!("{main} does not use a bibliography file yet. The entries were written to {}.", bib.display()));
+                ui.add_space(4.0);
+                ui.label(RichText::new(if md { "Add `bibliography:` to the front matter?" } else { "Add \\addbibresource and \\printbibliography (biblatex with biber) to the main file?" }).color(pal.dim));
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button(format!("Add to {main}")).clicked() || enter {
+                        let b = bib.clone();
+                        keep = false;
+                        self.set_up_bibliography(&b);
+                    }
+                    if ui.button("Not now").clicked() || esc {
                         keep = false;
                     }
                 });

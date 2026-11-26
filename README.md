@@ -112,7 +112,10 @@ Ein installierbares Linux-Paket baut `packaging/build-package.sh`
   Projekte als normale BibLaTeX-Datei (`~/.local/share/arvidleaf/arvidref/library.bib`,
   verlegbar). Einträge kommen per DOI, arXiv-ID, ISBN, BibTeX, CSL-JSON (Zotero-Export) oder
   PDF per Drag & Drop hinein. Ordnen über Sammlungen und Tags, Suche, Editor mit
-  Pflichtfeldern, PDF-Anhänge im eingebauten Viewer. Zitieren aus dem Editor folgt.
+  Pflichtfeldern, PDF-Anhänge im eingebauten Viewer. Zitieren aus dem Editor mit
+  Strg+Umschalt+C oder über die Vervollständigung in `\cite{`: Der Eintrag wird in die
+  `.bib` des Projekts kopiert (fehlt sie, entsteht `refs.bib` samt biblatex-Einrichtung).
+  Das Projekt bleibt damit ohne die Bibliothek kompilierbar.
 
 ## Eigene Templates
 
@@ -162,6 +165,7 @@ Die Tabelle dafür steht in `crates/lf-gui/src/shortcuts.rs`.
 | Tab / Umschalt+Tab | markierte Zeilen ein- / ausrücken |
 | Strg+H | Historie |
 | Strg+Umschalt+N, Strg+O | neues Projekt / Ordner öffnen |
+| Strg+Umschalt+C | Zitat aus der Bibliothek einfügen (im `\cite{…}`: Keys ergänzen) |
 | Strg+Umschalt+R | Literaturverwaltung ein/aus; dort Strg+V fügt DOI/BibTeX aus der Zwischenablage ein, Entf/Strg+Z löschen/rückgängig |
 
 Im Vim-Modus gelten die Editier-Kürzel im Insert-Modus.

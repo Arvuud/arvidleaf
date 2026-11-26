@@ -1,6 +1,31 @@
 # Changelog
 
-## Unveröffentlicht – arvidref (Literaturverwaltung), Meilensteine RF1–RF4
+## Unveröffentlicht – arvidref (Literaturverwaltung), Meilensteine RF1–RF5
+
+- **Zitieren aus dem Editor** (RF5):
+  - Zitier-Dialog (Strg+Umschalt+C, *Edit › Insert Citation…*): Suche über die Bibliothek
+    und die `.bib`-Dateien des Projekts. Enter zitiert. Mehrere Einträge wählt man über die
+    Kästchen oder Strg+Leertaste. Der Befehl (`\cite`, `\parencite`, `\textcite`,
+    `\autocite`, `\footcite`, `\citep`, `\citet`) wird pro Projekt gemerkt. In Markdown
+    entsteht `[@a; @b]`.
+  - Steht der Cursor in einem `\cite{…}` oder `[@…]`, werden nur die neuen Keys dort
+    ergänzt. Nach einem Wort wird `~\cite{…}` eingefügt (außer bei `\textcite`/`\citet`).
+  - Vervollständigung in `\cite{`: erst die Keys des Projekts, dann die der Bibliothek
+    (markiert mit „library“), jeweils mit Autor, Jahr und Titel.
+  - Zitierte Einträge aus der Bibliothek werden in die `.bib` des Projekts kopiert, ohne
+    Anhangspfade, Notizen und Zeitstempel: in die erste Datei aus
+    `\addbibresource`/`\bibliography` bzw. `bibliography:` im Markdown-Front-Matter, sonst in
+    eine neue `refs.bib`. Im letzten Fall fragt arvidleaf, ob `\usepackage{biblatex}`,
+    `\addbibresource` und `\printbibliography` eingefügt werden sollen (bei vorhandenem
+    `\bibliographystyle` stattdessen `\bibliography{…}`). Ist die Datei offen, wird der
+    Editorpuffer geändert, der Cursor bleibt stehen.
+  - Hover über einem Key zeigt Autor, Jahr und Titel.
+  - Nach dem Kompilieren zeigt das Problems-Panel bei undefinierten Zitaten, die in der
+    Bibliothek stehen, „Add from library“, einzeln und für alle zusammen. Danach wird neu
+    kompiliert.
+  - Gegenprobe mit biber in `~/Documents/arvidleaf/test/arvidref-rf5`: Zitier-Dialog und
+    Vervollständigung bis zum fertigen Literaturverzeichnis, ohne Warnung.
+- `--screenshot` kennt `--move F:X,Y` (Zeiger bewegen, z. B. für Tooltips).
 
 - **References-Ansicht** (RF4, *View › References* oder Strg+Umschalt+R, auch ohne offenes
   Projekt):
